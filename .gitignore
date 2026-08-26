@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables / secrets
+.env
+
+# SQLite database
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+
+# Runtime logs
+logs/*.log
+
+# Generated reports
+output/*.md
+
+# Generated synthetic data
+data/failed_payments.json
+data/failed_payments.csv
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

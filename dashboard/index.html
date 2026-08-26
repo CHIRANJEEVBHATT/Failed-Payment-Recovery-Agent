@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Failed Payment Recovery Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family:
+                Inter,
+                Arial,
+                sans-serif;
+
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .container {
+            width: min(1200px, 94%);
+            margin: auto;
+            padding: 30px 0 50px;
+        }
+
+        .header {
+            margin-bottom: 28px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 32px;
+        }
+
+        .header p {
+            color: #94a3b8;
+            margin-top: 8px;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: #052e16;
+            color: #86efac;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns:
+                repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            padding: 22px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+        }
+
+        .card-label {
+            color: #94a3b8;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .card-value {
+            font-size: 26px;
+            font-weight: 700;
+        }
+
+        .card-subtitle {
+            margin-top: 6px;
+            color: #64748b;
+            font-size: 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .panel h2 {
+            margin: 0 0 20px;
+            font-size: 18px;
+        }
+
+        .bar-row {
+            margin-bottom: 18px;
+        }
+
+        .bar-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 7px;
+            font-size: 13px;
+        }
+
+        .bar-name {
+            color: #cbd5e1;
+            text-transform: capitalize;
+        }
+
+        .bar-count {
+            color: #94a3b8;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 9px;
+            background: #0f172a;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .bar {
+            height: 100%;
+            background: #38bdf8;
+            border-radius: 999px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 13px 0;
+            border-bottom: 1px solid #334155;
+            font-size: 14px;
+        }
+
+        .metric-row:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: #94a3b8;
+        }
+
+        .metric-value {
+            font-weight: 600;
+        }
+
+        .real {
+            color: #4ade80;
+        }
+
+        .simulated {
+            color: #fbbf24;
+        }
+
+        .failed {
+            color: #fb7185;
+        }
+
+        .escalated {
+            color: #c084fc;
+        }
+
+        .exceptions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .exception {
+            padding: 14px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+        }
+
+        .exception-id {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .exception-reason {
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        .empty {
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #64748b;
+            font-size: 12px;
+        }
+
+        @media (max-width: 900px) {
+            .cards {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .exceptions {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 25px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+
+        <h1>
+            Failed Payment Recovery Agent
+        </h1>
+
+        <p>
+            Live recovery analytics from the current
+            SQLite audit database
+        </p>
+
+        <div class="status">
+
+            <span
+                class="status-dot"
+                id="statusDot"
+            ></span>
+
+            <span id="statusText">
+                Connecting...
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <!-- PRIMARY CARDS -->
+
+    <div class="cards">
+
+        <div class="card">
+
+            <div class="card-label">
+                Total Amount at Risk
+            </div>
+
+            <div
+                class="card-value"
+                id="amountAtRisk"
+            >
+                ₹0
+            </div>
+
+            <div class="card-subtitle">
+                Current processed batch
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Real Recovery
+            </div>
+
+            <div
+                class="card-value real"
+                id="realRecovery"
+            >
+                ₹0
+            </div>
+
+            <div class="card-subtitle">
+                Successful Razorpay API actions
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Recovery Rate
+            </div>
+
+            <div
+                class="card-value"
+                id="recoveryRate"
+            >
+                0%
+            </div>
+
+            <div class="card-subtitle">
+                Real recovery only
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Payments Processed
+            </div>
+
+            <div
+                class="card-value"
+                id="paymentsProcessed"
+            >
+                0
+            </div>
+
+            <div class="card-subtitle">
+                Current batch
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- SECONDARY CARDS -->
+
+    <div class="cards">
+
+        <div class="card">
+
+            <div class="card-label">
+                Real API Calls
+            </div>
+
+            <div
+                class="card-value"
+                id="realApiCalls"
+            >
+                0
+            </div>
+
+            <div class="card-subtitle">
+                TEST MODE
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Simulated Recovery
+            </div>
+
+            <div
+                class="card-value simulated"
+                id="simulatedRecovery"
+            >
+                ₹0
+            </div>
+
+            <div class="card-subtitle">
+                Never counted as real
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Still Failed
+            </div>
+
+            <div
+                class="card-value failed"
+                id="stillFailed"
+            >
+                ₹0
+            </div>
+
+            <div class="card-subtitle">
+                Not recovered
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-label">
+                Escalated
+            </div>
+
+            <div
+                class="card-value escalated"
+                id="escalated"
+            >
+                0
+            </div>
+
+            <div class="card-subtitle">
+                Requires human review
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- BREAKDOWN -->
+
+    <div class="grid">
+
+        <div class="panel">
+
+            <h2>
+                Failure Reason Breakdown
+            </h2>
+
+            <div id="failureBreakdown">
+                <div class="empty">
+                    Loading...
+                </div>
+            </div>
+
+        </div>
+
+
+        <div class="panel">
+
+            <h2>
+                Recovery Summary
+            </h2>
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Total at risk
+                </span>
+
+                <span
+                    class="metric-value"
+                    id="summaryRisk"
+                >
+                    ₹0
+                </span>
+
+            </div>
+
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Real recovery
+                </span>
+
+                <span
+                    class="metric-value real"
+                    id="summaryReal"
+                >
+                    ₹0
+                </span>
+
+            </div>
+
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Simulated recovery
+                </span>
+
+                <span
+                    class="metric-value simulated"
+                    id="summarySimulated"
+                >
+                    ₹0
+                </span>
+
+            </div>
+
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Real recovery rate
+                </span>
+
+                <span
+                    class="metric-value"
+                    id="summaryRealRate"
+                >
+                    0%
+                </span>
+
+            </div>
+
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Combined recovery rate
+                </span>
+
+                <span
+                    class="metric-value"
+                    id="summaryCombinedRate"
+                >
+                    0%
+                </span>
+
+            </div>
+
+
+            <div class="metric-row">
+
+                <span class="metric-label">
+                    Audit coverage
+                </span>
+
+                <span
+                    class="metric-value"
+                    id="auditCoverage"
+                >
+                    0/0
+                </span>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- EXCEPTIONS -->
+
+    <div class="panel">
+
+        <h2>
+            Honest Exceptions
+        </h2>
+
+        <p
+            style="
+                color:#94a3b8;
+                font-size:13px;
+                margin-top:-10px;
+                margin-bottom:20px;
+            "
+        >
+            Escalated and blocked payments from
+            the current batch.
+        </p>
+
+        <div
+            class="exceptions"
+            id="exceptions"
+        >
+            <div class="empty">
+                Loading...
+            </div>
+        </div>
+
+    </div>
+
+
+    <div class="footer">
+
+        Failed Payment Recovery Agent ·
+        Razorpay TEST MODE ·
+        Live SQLite-backed dashboard
+
+    </div>
+
+</div>
+
+
+<script>
+
+    // --------------------------------------------------
+    // Helpers
+    // --------------------------------------------------
+
+    function formatCurrency(
+        amount
+    ) {
+
+        return "₹" + Number(
+            amount || 0
+        ).toLocaleString(
+            "en-IN",
+            {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }
+        );
+
+    }
+
+
+    function formatPercentage(
+        value
+    ) {
+
+        return Number(
+            value || 0
+        ).toFixed(2) + "%";
+
+    }
+
+
+    // --------------------------------------------------
+    // Update dashboard
+    // --------------------------------------------------
+
+    function updateDashboard(
+        data
+    ) {
+
+        document.getElementById(
+            "amountAtRisk"
+        ).textContent =
+            formatCurrency(
+                data.total_amount_at_risk
+            );
+
+
+        document.getElementById(
+            "realRecovery"
+        ).textContent =
+            formatCurrency(
+                data.real_recovered_amount
+            );
+
+
+        document.getElementById(
+            "recoveryRate"
+        ).textContent =
+            formatPercentage(
+                data.real_recovery_percentage
+            );
+
+
+        document.getElementById(
+            "paymentsProcessed"
+        ).textContent =
+            data.total_payments;
+
+
+        document.getElementById(
+            "realApiCalls"
+        ).textContent =
+            data.real_api_calls +
+            "/" +
+            data.max_real_api_calls;
+
+
+        document.getElementById(
+            "simulatedRecovery"
+        ).textContent =
+            formatCurrency(
+                data.simulated_recovered_amount
+            );
+
+
+        document.getElementById(
+            "stillFailed"
+        ).textContent =
+            formatCurrency(
+                data.still_failed_amount
+            );
+
+
+        document.getElementById(
+            "escalated"
+        ).textContent =
+            data.escalated_count;
+
+
+        document.getElementById(
+            "summaryRisk"
+        ).textContent =
+            formatCurrency(
+                data.total_amount_at_risk
+            );
+
+
+        document.getElementById(
+            "summaryReal"
+        ).textContent =
+            formatCurrency(
+                data.real_recovered_amount
+            );
+
+
+        document.getElementById(
+            "summarySimulated"
+        ).textContent =
+            formatCurrency(
+                data.simulated_recovered_amount
+            );
+
+
+        document.getElementById(
+            "summaryRealRate"
+        ).textContent =
+            formatPercentage(
+                data.real_recovery_percentage
+            );
+
+
+        document.getElementById(
+            "summaryCombinedRate"
+        ).textContent =
+            formatPercentage(
+                data.combined_recovery_percentage
+            );
+
+
+        document.getElementById(
+            "auditCoverage"
+        ).textContent =
+            data.audit_records +
+            "/" +
+            data.total_payments;
+
+
+        updateFailureBreakdown(
+            data.failure_breakdown
+        );
+
+
+        updateExceptions(
+            data.exceptions
+        );
+
+    }
+
+
+    // --------------------------------------------------
+    // Failure breakdown
+    // --------------------------------------------------
+
+    function updateFailureBreakdown(
+        breakdown
+    ) {
+
+        const container =
+            document.getElementById(
+                "failureBreakdown"
+            );
+
+        container.innerHTML = "";
+
+
+        if (
+            !breakdown ||
+            breakdown.length === 0
+        ) {
+
+            container.innerHTML = `
+                <div class="empty">
+                    No payment data available.
+                </div>
+            `;
+
+            return;
+
+        }
+
+
+        const maximumCount =
+            Math.max(
+                ...breakdown.map(
+                    item => item.count
+                )
+            );
+
+
+        breakdown.forEach(
+            item => {
+
+                const width =
+                    maximumCount > 0
+                        ? (
+                            item.count /
+                            maximumCount
+                        ) * 100
+                        : 0;
+
+
+                const row =
+                    document.createElement(
+                        "div"
+                    );
+
+                row.className =
+                    "bar-row";
+
+
+                row.innerHTML = `
+
+                    <div class="bar-header">
+
+                        <span class="bar-name">
+                            ${item.failure_reason
+                                .replaceAll(
+                                    "_",
+                                    " "
+                                )}
+                        </span>
+
+                        <span class="bar-count">
+                            ${item.count}
+                        </span>
+
+                    </div>
+
+                    <div class="bar-container">
+
+                        <div
+                            class="bar"
+                            style="
+                                width:${width}%;
+                            "
+                        ></div>
+
+                    </div>
+
+                `;
+
+
+                container.appendChild(
+                    row
+                );
+
+            }
+        );
+
+    }
+
+
+    // --------------------------------------------------
+    // Exceptions
+    // --------------------------------------------------
+
+    function updateExceptions(
+        exceptions
+    ) {
+
+        const container =
+            document.getElementById(
+                "exceptions"
+            );
+
+        container.innerHTML = "";
+
+
+        if (
+            !exceptions ||
+            exceptions.length === 0
+        ) {
+
+            container.innerHTML = `
+                <div class="empty">
+                    No escalated or blocked
+                    payments in this batch.
+                </div>
+            `;
+
+            return;
+
+        }
+
+
+        exceptions.forEach(
+            exception => {
+
+                const element =
+                    document.createElement(
+                        "div"
+                    );
+
+                element.className =
+                    "exception";
+
+
+                element.innerHTML = `
+
+                    <div class="exception-id">
+                        ${exception.payment_id}
+                    </div>
+
+                    <div class="exception-reason">
+                        ${exception.reason}
+                    </div>
+
+                `;
+
+
+                container.appendChild(
+                    element
+                );
+
+            }
+        );
+
+    }
+
+
+    // --------------------------------------------------
+    // API connection
+    // --------------------------------------------------
+
+    async function loadDashboard() {
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/dashboard"
+                );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "Dashboard API returned " +
+                    response.status
+                );
+
+            }
+
+
+            const data =
+                await response.json();
+
+
+            updateDashboard(
+                data
+            );
+
+
+            document.getElementById(
+                "statusText"
+            ).textContent =
+                "Live · SQLite Connected";
+
+
+            document.getElementById(
+                "statusDot"
+            ).classList.remove(
+                "error"
+            );
+
+        } catch (
+            error
+        ) {
+
+            console.error(
+                error
+            );
+
+
+            document.getElementById(
+                "statusText"
+            ).textContent =
+                "Dashboard API unavailable";
+
+
+            document.getElementById(
+                "statusDot"
+            ).classList.add(
+                "error"
+            );
+
+        }
+
+    }
+
+
+    // --------------------------------------------------
+    // Initial load
+    // --------------------------------------------------
+
+    loadDashboard();
+
+
+    // Refresh every 10 seconds
+    setInterval(
+        loadDashboard,
+        10000
+    );
+
+</script>
+
+</body>
+</html>
