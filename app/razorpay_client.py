@@ -54,7 +54,7 @@ class RazorpayClient:
         - Log requests and responses.
         - Create Payment Links.
     """
-
+    
     def __init__(
         self,
         key_id: Optional[str] = None,
@@ -442,6 +442,172 @@ class RazorpayClient:
             payload=payload,
         )
 
+    # -----------------------------------------------------
+    # Fetch Payment Link
+    # -----------------------------------------------------
+
+    def fetch_payment_link(
+        self,
+        payment_link_id: str,
+    ) -> dict:
+        """
+        Fetch the current status of an existing
+        Razorpay Payment Link.
+
+        This is a read-only API call.
+        """
+
+        if not payment_link_id:
+            raise ValueError(
+                "Payment Link ID is required."
+            )
+
+        return self._request(
+            method="GET",
+            endpoint=(
+                f"payment_links/"
+                f"{payment_link_id}"
+            ),
+        )
+
+
+    # -----------------------------------------------------
+    # Confirmed settlement tracking
+    # -----------------------------------------------------
+
+    def check_payment_link_settlement(
+        self,
+        payment_link_id: str,
+    ) -> dict:
+        """
+        Check whether a Payment Link resulted in
+        a confirmed customer payment.
+
+        Creating a Payment Link is NOT considered
+        a confirmed recovery.
+
+        A confirmed settlement requires:
+
+            status == "paid"
+
+        and:
+
+            amount_paid > 0
+        """
+
+        response = self.fetch_payment_link(
+            payment_link_id
+        )
+
+        # API request failed
+        if not response["success"]:
+
+            return {
+                "success": False,
+                "confirmed": False,
+                "status": None,
+                "amount": 0.0,
+                "amount_paid": 0.0,
+                "payment_link_id": payment_link_id,
+                "payment_id": None,
+                "error": response["error"],
+                "api_status_code": response["status_code"],
+                "api_response": response["data"],
+            }
+
+
+        data = (
+            response.get("data")
+            or {}
+        )
+
+
+        # Payment Link status
+        status = str(
+            data.get(
+                "status",
+                ""
+            )
+        ).lower()
+
+
+        # Razorpay amounts are in paise.
+        # Convert to INR.
+        amount = (
+            float(
+                data.get(
+                    "amount",
+                    0
+                )
+            )
+            / 100
+        )
+
+
+        amount_paid = (
+            float(
+                data.get(
+                    "amount_paid",
+                    0
+                )
+            )
+            / 100
+        )
+
+
+        # Try to extract the actual Razorpay
+        # payment ID when available.
+        payment_id = None
+
+        payments = data.get(
+            "payments"
+        )
+
+
+        if (
+            isinstance(
+                payments,
+                list
+            )
+            and payments
+        ):
+
+            first_payment = payments[0]
+
+            if isinstance(
+                first_payment,
+                dict
+            ):
+
+                payment_id = (
+                    first_payment.get(
+                        "id"
+                    )
+                )
+
+
+        # -------------------------------------------------
+        # CONFIRMED SETTLEMENT
+        # -------------------------------------------------
+
+        confirmed = (
+            status == "paid"
+            and amount_paid > 0
+        )
+
+
+        return {
+            "success": True,
+            "confirmed": confirmed,
+            "status": status,
+            "amount": amount,
+            "amount_paid": amount_paid,
+            "payment_link_id": payment_link_id,
+            "payment_id": payment_id,
+            "error": None,
+            "api_status_code": response["status_code"],
+            "api_response": data,
+        }
 
 # ---------------------------------------------------------
 # Direct connection test

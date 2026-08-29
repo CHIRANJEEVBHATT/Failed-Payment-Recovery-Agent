@@ -19,11 +19,19 @@ class PaymentProcessor:
     """
     Coordinates recovery decisions and execution.
 
-    Real Razorpay Payment Link calls are capped by
+    Real Razorpay Payment Link creation calls are capped by
     MAX_REAL_API_CALLS.
 
-    Real successful Payment Link creation is counted as
-    real recovery.
+    IMPORTANT:
+        Creating a Payment Link is NOT considered confirmed
+        revenue recovery.
+
+    A Payment Link becomes confirmed recovery only when
+    Razorpay reports:
+
+        status == "paid"
+        AND
+        amount_paid > 0
 
     Simulated actions are never counted as real recovery.
     """
@@ -53,7 +61,15 @@ class PaymentProcessor:
             else max_real_api_calls
         )
 
+        # Counts real Payment Link creation attempts.
+        #
+        # Settlement status checks are tracked separately so
+        # a GET status check does not consume a Payment Link
+        # creation slot.
         self.real_api_calls = 0
+
+        # Number of real settlement status checks.
+        self.settlement_checks = 0
 
     # -----------------------------------------------------
     # Batch processing
@@ -105,8 +121,13 @@ class PaymentProcessor:
         print("=" * 70)
 
         print(
-            "Real Razorpay API calls made: "
+            "Real Razorpay Payment Link creation calls made: "
             f"{self.real_api_calls}"
+        )
+
+        print(
+            "Razorpay settlement status checks made: "
+            f"{self.settlement_checks}"
         )
 
         print("=" * 70)
@@ -310,15 +331,27 @@ class PaymentProcessor:
         """
         Execute SEND_NEW_LINK.
 
-        A real API attempt consumes one slot from the
-        configured real API cap.
+        The workflow is now:
 
-        A successful HTTP response is real recovery.
+            1. Create Payment Link.
+            2. Fetch Payment Link status.
+            3. Confirm whether money was actually paid.
 
-        A failed API response is not recovery.
+        IMPORTANT:
 
-        Once the cap is reached, remaining records are
-        explicitly simulated.
+        A successful POST /payment_links response means
+        only that the recovery action was triggered.
+
+        It does NOT mean that revenue was recovered.
+
+        Confirmed recovery requires Razorpay to report:
+
+            status == "paid"
+            AND
+            amount_paid > 0
+
+        Once the creation cap is reached, remaining
+        Payment Link actions are explicitly simulated.
         """
 
         # -------------------------------------------------
@@ -356,7 +389,7 @@ class PaymentProcessor:
             return result
 
         # -------------------------------------------------
-        # Make one real API call
+        # Make one real Payment Link creation call
         # -------------------------------------------------
 
         self.real_api_calls += 1
@@ -384,7 +417,7 @@ class PaymentProcessor:
         )
 
         # -------------------------------------------------
-        # SUCCESS
+        # Payment Link creation SUCCESS
         # -------------------------------------------------
 
         if api_result.get("success") is True:
@@ -393,26 +426,108 @@ class PaymentProcessor:
                 or {}
             )
 
+            payment_link_id = (
+                response_data.get("id")
+            )
+
+            payment_link_url = (
+                response_data.get("short_url")
+            )
+
             result.update(
                 {
                     "action_taken": (
                         "PAYMENT_LINK_CREATED"
                     ),
-                    "outcome": "recovered",
-                    "recovery_type": "real",
+
+                    # IMPORTANT:
+                    # Creating a link is not recovery.
+                    "outcome": "awaiting_payment",
+
+                    # Do NOT count this as recovered revenue.
+                    "recovery_type": "none",
+
                     "real_api_call": True,
                     "simulated": False,
+
                     "payment_link": (
-                        response_data.get(
-                            "short_url"
-                        )
+                        payment_link_url
                     ),
+
+                    "payment_link_id": (
+                        payment_link_id
+                    ),
+
+                    "settlement_status": (
+                        "not_checked"
+                    ),
+
+                    "settlement_confirmed": (
+                        False
+                    ),
+
+                    "settlement_amount_paid": (
+                        0.0
+                    ),
+
+                    "settlement_payment_id": (
+                        None
+                    ),
+
+                    "settlement_api_status_code": (
+                        None
+                    ),
+
                     "notes": (
                         "Razorpay TEST MODE Payment "
-                        "Link was created successfully."
+                        "Link was created successfully. "
+                        "Payment recovery is NOT confirmed "
+                        "until Razorpay reports the link "
+                        "as paid."
                     ),
                 }
             )
+
+            # -------------------------------------------------
+            # Confirmed settlement check
+            # -------------------------------------------------
+
+            if payment_link_id:
+
+                settlement_result = (
+                    self._check_payment_link_settlement(
+                        payment_link_id
+                    )
+                )
+
+                self._apply_settlement_result(
+                    result=result,
+                    settlement_result=(
+                        settlement_result
+                    ),
+                )
+
+            else:
+
+                result.update(
+                    {
+                        "settlement_status": (
+                            "missing_payment_link_id"
+                        ),
+
+                        "settlement_confirmed": (
+                            False
+                        ),
+
+                        "notes": (
+                            "Payment Link was created, "
+                            "but Razorpay did not return "
+                            "a Payment Link ID. "
+                            "Confirmed recovery cannot "
+                            "be established."
+                        ),
+                    }
+                )
 
             self._write_audit(
                 payment,
@@ -524,6 +639,206 @@ class PaymentProcessor:
         return result
 
     # -----------------------------------------------------
+    # Settlement status check
+    # -----------------------------------------------------
+
+    def _check_payment_link_settlement(
+        self,
+        payment_link_id: str,
+    ) -> dict:
+        """
+        Fetch the current Payment Link status from Razorpay.
+
+        This is deliberately separate from the Payment Link
+        creation cap.
+
+        Why?
+
+        The creation cap protects the number of real
+        Payment Link creation actions.
+
+        Settlement checks are read-only GET requests and
+        are used to verify whether money was actually paid.
+        """
+
+        self.settlement_checks += 1
+
+        try:
+
+            return (
+                self.razorpay_client
+                .check_payment_link_settlement(
+                    payment_link_id
+                )
+            )
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "confirmed": False,
+                "status": None,
+                "amount": 0.0,
+                "amount_paid": 0.0,
+                "payment_link_id": (
+                    payment_link_id
+                ),
+                "payment_id": None,
+                "error": str(exc),
+                "api_status_code": None,
+                "api_response": None,
+            }
+
+    # -----------------------------------------------------
+    # Apply settlement result
+    # -----------------------------------------------------
+
+    @staticmethod
+    def _apply_settlement_result(
+        result: dict,
+        settlement_result: dict,
+    ) -> None:
+        """
+        Apply normalized Razorpay settlement information
+        to the processing result.
+
+        Only a confirmed paid state becomes real recovery.
+        """
+
+        result["settlement_status"] = (
+            settlement_result.get(
+                "status"
+            )
+        )
+
+        result["settlement_confirmed"] = (
+            settlement_result.get(
+                "confirmed",
+                False
+            )
+        )
+
+        result["settlement_amount"] = (
+            settlement_result.get(
+                "amount",
+                0.0
+            )
+        )
+
+        result["settlement_amount_paid"] = (
+            settlement_result.get(
+                "amount_paid",
+                0.0
+            )
+        )
+
+        result["settlement_payment_id"] = (
+            settlement_result.get(
+                "payment_id"
+            )
+        )
+
+        result["settlement_api_status_code"] = (
+            settlement_result.get(
+                "api_status_code"
+            )
+        )
+
+        result["settlement_error"] = (
+            settlement_result.get(
+                "error"
+            )
+        )
+
+        result["settlement_api_response"] = (
+            settlement_result.get(
+                "api_response"
+            )
+        )
+
+        # -------------------------------------------------
+        # CONFIRMED SETTLEMENT
+        # -------------------------------------------------
+
+        if settlement_result.get(
+            "confirmed"
+        ) is True:
+
+            result["outcome"] = (
+                "confirmed_settlement"
+            )
+
+            result["recovery_type"] = (
+                "real"
+            )
+
+            result["notes"] = (
+                "Razorpay confirmed that the "
+                "Payment Link was paid. "
+                "This recovery is counted as "
+                "confirmed recovered revenue."
+            )
+
+            return
+
+        # -------------------------------------------------
+        # PAYMENT NOT YET CONFIRMED
+        # -------------------------------------------------
+
+        result["outcome"] = (
+            "awaiting_payment"
+        )
+
+        result["recovery_type"] = (
+            "none"
+        )
+
+        if settlement_result.get(
+            "success"
+        ):
+
+            result["notes"] = (
+                "Payment Link was created successfully, "
+                "but Razorpay has not confirmed payment. "
+                "This amount is NOT counted as recovered "
+                "revenue."
+            )
+
+        else:
+
+            result["notes"] = (
+                "Payment Link was created successfully, "
+                "but the settlement status could not be "
+                "confirmed. This amount is NOT counted "
+                "as recovered revenue."
+            )
+
+    # -----------------------------------------------------
+    # Re-check existing Payment Link
+    # -----------------------------------------------------
+
+    def check_existing_payment_link(
+        self,
+        payment_link_id: str,
+    ) -> dict:
+        """
+        Public helper for checking an existing Payment Link.
+
+        This can be used later by a scheduler, dashboard
+        endpoint, or manual settlement verification command.
+
+        It does NOT create a new Payment Link.
+        """
+
+        settlement_result = (
+            self._check_payment_link_settlement(
+                payment_link_id
+            )
+        )
+
+        return settlement_result
+
+    # -----------------------------------------------------
     # Base result
     # -----------------------------------------------------
 
@@ -542,39 +857,99 @@ class PaymentProcessor:
                     timespec="seconds"
                 )
             ),
+
             "payment_id": payment.payment_id,
+
             "customer_name": (
                 payment.customer_name
             ),
+
             "email": payment.email,
+
             "phone": payment.phone,
+
             "amount": payment.amount,
+
             "failure_reason": (
                 payment.failure_reason
             ),
+
             "payment_type": (
                 payment.payment_type
             ),
+
             "attempt_count": (
                 payment.attempt_count
             ),
+
             "last_attempt_at": (
                 payment.last_attempt_at
             ),
+
             "decision": decision.action,
+
             "reason": decision.reason,
+
             "delay_hours": (
                 decision.delay_hours
             ),
+
             "action_taken": None,
+
             "api_request": None,
+
             "api_response": None,
+
             "api_status_code": None,
+
             "outcome": None,
+
             "recovery_type": "none",
+
             "real_api_call": False,
+
             "simulated": False,
+
             "payment_link": None,
+
+            "payment_link_id": None,
+
+            # -------------------------------------------------
+            # Settlement tracking fields
+            # -------------------------------------------------
+
+            "settlement_status": (
+                "not_applicable"
+            ),
+
+            "settlement_confirmed": (
+                False
+            ),
+
+            "settlement_amount": (
+                0.0
+            ),
+
+            "settlement_amount_paid": (
+                0.0
+            ),
+
+            "settlement_payment_id": (
+                None
+            ),
+
+            "settlement_api_status_code": (
+                None
+            ),
+
+            "settlement_error": (
+                None
+            ),
+
+            "settlement_api_response": (
+                None
+            ),
+
             "notes": None,
         }
 
@@ -589,7 +964,59 @@ class PaymentProcessor:
     ) -> None:
         """
         Write one audit record.
+
+        Settlement fields are included in notes for now.
+
+        The database schema will be upgraded separately so
+        confirmed settlement data gets first-class columns.
         """
+
+        notes = result.get(
+            "notes"
+        )
+
+        settlement_status = result.get(
+            "settlement_status"
+        )
+
+        settlement_confirmed = result.get(
+            "settlement_confirmed"
+        )
+
+        settlement_amount_paid = result.get(
+            "settlement_amount_paid",
+            0.0
+        )
+
+        settlement_payment_id = result.get(
+            "settlement_payment_id"
+        )
+
+        settlement_error = result.get(
+            "settlement_error"
+        )
+
+        settlement_summary = (
+            f" | Settlement status: "
+            f"{settlement_status}; "
+            f"confirmed: "
+            f"{settlement_confirmed}; "
+            f"amount paid: "
+            f"₹{settlement_amount_paid:.2f}; "
+            f"payment ID: "
+            f"{settlement_payment_id or 'none'}"
+        )
+
+        if settlement_error:
+            settlement_summary += (
+                f"; settlement error: "
+                f"{settlement_error}"
+            )
+
+        combined_notes = (
+            f"{notes or ''}"
+            f"{settlement_summary}"
+        ).strip()
 
         self.audit_logger.log(
             payment_id=payment.payment_id,
@@ -608,7 +1035,7 @@ class PaymentProcessor:
                 "api_status_code"
             ],
             outcome=result["outcome"],
-            notes=result["notes"],
+            notes=combined_notes,
             recovery_type=result[
                 "recovery_type"
             ],
@@ -658,9 +1085,43 @@ class PaymentProcessor:
             f"{result['outcome']}"
         )
 
+        # -------------------------------------------------
+        # Settlement information
+        # -------------------------------------------------
+
+        if result.get(
+            "payment_link_id"
+        ):
+
+            print(
+                f"    Link ID:  "
+                f"{result['payment_link_id']}"
+            )
+
+            print(
+                f"    Payment:  "
+                f"{result.get('settlement_status')}"
+            )
+
+            print(
+                f"    Confirmed: "
+                f"{result.get('settlement_confirmed')}"
+            )
+
+            if result.get(
+                "settlement_amount_paid",
+                0.0
+            ):
+
+                print(
+                    f"    Paid:     "
+                    f"₹{result['settlement_amount_paid']:.2f}"
+                )
+
         if result.get(
             "recovery_type"
         ) == "real":
+
             print(
                 f"    Real API calls: "
                 f"{self.real_api_calls}/"
@@ -670,6 +1131,7 @@ class PaymentProcessor:
         if result.get(
             "recovery_type"
         ) == "simulated":
+
             print(
                 "    Simulation: "
                 "Test Mode API cap reached"

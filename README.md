@@ -1,39 +1,57 @@
 # Failed Payment Recovery Agent
 
-A Python backend agent that detects failed payments, classifies the failure
-reason, selects a safe recovery action, executes eligible actions through
-Razorpay's TEST MODE APIs, records every decision in SQLite, and surfaces
-the results through a local browser dashboard.
+A Python-based revenue recovery agent that detects failed payments, determines the safest recovery action, executes eligible actions through Razorpay TEST MODE, verifies whether payments were actually completed, maintains a complete SQLite audit trail, and presents the results through a local dashboard.
+
+The project is designed around one principle:
+
+> **A recovery action is not the same thing as recovered revenue.**
+
+Creating a Payment Link does not mean the customer paid. Revenue is counted as recovered only after Razorpay confirms a completed payment.
 
 ---
 
 ## Overview
 
-Merchants lose revenue whenever a payment fails. Common causes include
-insufficient funds, expired cards, bank/network timeouts, OTP failures,
-fraud blocks, and failed subscription mandates — and each one warrants a
-different response. Insufficient funds may justify a delayed retry; an
-expired card needs a new payment method; an OTP failure should prompt the
-customer rather than silently retry; a fraud block should go straight to
-a human.
+Payment failures can have very different causes:
 
-This agent automates that decision-making end-to-end while keeping every
-action fully auditable and every reported number honest.
+* Insufficient funds
+* Expired cards
+* Bank/network timeouts
+* OTP failures
+* Fraud blocks
+* Failed payment mandates
 
-For each failed payment in a batch, the agent:
+Each failure requires a different response.
 
-1. Reads the payment record
-2. Classifies the failure reason
-3. Selects a recovery action using deterministic rules
-4. Applies safety and stopping rules
-5. Executes eligible actions through Razorpay TEST MODE
-6. Records the decision and API result in SQLite
-7. Generates a recovery report
-8. Surfaces batch statistics through a local dashboard
+For example:
+
+* Insufficient funds → retry later
+* Expired card → create a new Payment Link
+* Bank timeout → controlled retry
+* OTP failure → customer reminder
+* Fraud block → human escalation
+* Subscription mandate failure → human escalation
+* One-time mandate failure → new Payment Link
+
+The agent automates this workflow using deterministic, explainable rules while keeping safety controls and financial reporting explicit.
+
+For each failed payment, the system:
+
+1. Loads the payment record
+2. Validates the dataset
+3. Classifies the failure reason
+4. Selects a recovery action
+5. Applies safety and stopping rules
+6. Executes eligible actions through Razorpay TEST MODE
+7. Checks Payment Link settlement status
+8. Distinguishes confirmed recovery from triggered actions
+9. Stores the complete audit record in SQLite
+10. Generates recovery metrics and a report
+11. Displays the batch through a local dashboard
 
 ---
 
-## Architecture
+# Architecture
 
 ```text
 Synthetic Payment Dataset
@@ -45,41 +63,62 @@ Synthetic Payment Dataset
     Decision Engine
           |
           v
-       Processor
-       /        \
-      v          v
+      Processor
+       /      \
+      /        \
+     v          v
 Razorpay API   SQLite Audit DB
-      \          /
-       v        v
-     Recovery Results
-          |
-          v
-        Reporter
-          |
-          v
-    output/report.md
+     |              |
+     |              v
+     |        Audit / Metrics
+     |
+     v
+Payment Link
+     |
+     v
+Settlement Check
+     |
+     v
++---------------------------+
+| Payment actually paid?    |
++---------------------------+
+       |              |
+      YES             NO
+       |              |
+       v              v
+Confirmed         Awaiting
+Settlement        Payment
+       |
+       v
+    Reporter
+       |
+       v
+ output/report.md
 ```
+
+### Dashboard architecture
 
 ```text
 SQLite Audit DB
-      |
-      v
-dashboard/server.py  ->  GET /api/dashboard
-      |
-      v
+       |
+       v
+dashboard/server.py
+       |
+       v
+GET /api/dashboard
+       |
+       v
 dashboard/index.html
-      |
-      v
-   Browser
+       |
+       v
+    Browser
 ```
 
-The recovery logic is entirely backend-driven. The dashboard is a thin,
-read-only visualization layer over the audit database — it contains no
-business logic and cannot influence a recovery decision.
+The dashboard is a read-only visualization layer. It contains no recovery business logic and cannot influence recovery decisions.
 
 ---
 
-## Project Structure
+# Project Structure
 
 ```text
 failed-payment-recovery-agent/
@@ -126,28 +165,39 @@ failed-payment-recovery-agent/
 └── run.py
 ```
 
-Runtime artifacts — `.env`, `audit.db`, generated datasets, reports, and
-logs — are excluded from version control (see `.gitignore`).
+Runtime files such as `.env`, `audit.db`, generated datasets, reports, logs, and the virtual environment should not be committed to GitHub.
 
 ---
 
-## Synthetic Data
+# Synthetic Dataset
 
-`app/generator.py` produces 60–100 synthetic failed-payment records. This
-data does not represent real customers.
+`app/generator.py` generates a synthetic batch of failed-payment records.
+
+The data does **not** represent real customers.
 
 Each record contains:
 
 ```text
-payment_id, customer_name, email, phone, amount,
-failure_reason, attempt_count, payment_type, last_attempt_at
+payment_id
+customer_name
+email
+phone
+amount
+failure_reason
+attempt_count
+payment_type
+last_attempt_at
 ```
 
 Supported failure reasons:
 
 ```text
-insufficient_funds, card_expired, bank_timeout,
-otp_failed, fraud_block, mandate_failed
+insufficient_funds
+card_expired
+bank_timeout
+otp_failed
+fraud_block
+mandate_failed
 ```
 
 Generate a fresh dataset:
@@ -156,43 +206,98 @@ Generate a fresh dataset:
 python -m app.generator
 ```
 
-Output: `data/failed_payments.json`, `data/failed_payments.csv`
+This creates:
+
+```text
+data/failed_payments.json
+data/failed_payments.csv
+```
 
 ---
 
-## Decision Engine
+# Decision Engine
 
-The decision engine is fully deterministic — payment-recovery decisions
-should be predictable, testable, and explainable, not left to chance.
+The decision engine is deterministic.
 
-| Failure reason | Action | Rule |
-|---|---|---|
-| `insufficient_funds` | `RETRY_LATER` | 6-hour delay, max 2 retries |
-| `card_expired` | `SEND_NEW_LINK` | Create a new payment link |
-| `bank_timeout` | `RETRY_NOW` | Max 1 retry |
-| `otp_failed` | `SEND_REMINDER` | Never silently retried |
-| `fraud_block` | `ESCALATE_HUMAN` | Never auto-retried |
-| `mandate_failed` (subscription) | `ESCALATE_HUMAN` | Human intervention |
-| `mandate_failed` (one-time) | `SEND_NEW_LINK` | New payment link |
+The LLM is intentionally **not** responsible for deciding financial recovery actions.
 
-**Global override:** any payment with `attempt_count >= 3` becomes
-`DO_NOT_RETRY`, regardless of failure reason.
+This makes the system predictable, testable, and explainable.
+
+| Failure Reason                  | Action           | Rule                            |
+| ------------------------------- | ---------------- | ------------------------------- |
+| `insufficient_funds`            | `RETRY_LATER`    | 6-hour delay, maximum 2 retries |
+| `card_expired`                  | `SEND_NEW_LINK`  | Create a new Payment Link       |
+| `bank_timeout`                  | `RETRY_NOW`      | Maximum 1 retry                 |
+| `otp_failed`                    | `SEND_REMINDER`  | Never silently retried          |
+| `fraud_block`                   | `ESCALATE_HUMAN` | Never automatically retried     |
+| `mandate_failed` — subscription | `ESCALATE_HUMAN` | Human intervention              |
+| `mandate_failed` — one-time     | `SEND_NEW_LINK`  | Create a new Payment Link       |
+
+### Global stopping rule
+
+Any payment with:
+
+```text
+attempt_count >= 3
+```
+
+is converted to:
+
+```text
+DO_NOT_RETRY
+```
+
+regardless of the failure reason.
 
 ---
 
-## Safety / Stopping Rules
+# Safety and Stopping Rules
 
-- **Max attempts** — no payment is auto-retried beyond 3 total attempts.
-- **Duplicate-retry protection** — the same `payment_id` cannot be
-  retried within 10 minutes, reducing duplicate-charge risk.
-- **Fraud protection** — `fraud_block` is escalated to a human
-  immediately, with zero automatic retries, no exceptions.
+The agent is intentionally bounded.
+
+### Maximum attempts
+
+No payment is automatically retried beyond three total attempts.
+
+### Duplicate retry protection
+
+The same payment cannot be automatically retried within ten minutes.
+
+This reduces duplicate-charge risk.
+
+### Fraud protection
+
+`fraud_block` always results in:
+
+```text
+ESCALATE_HUMAN
+```
+
+There are no automatic retries for fraud-blocked payments.
+
+### API safety cap
+
+Razorpay TEST MODE Payment Link creation is limited by:
+
+```env
+MAX_REAL_API_CALLS=20
+```
+
+Once the limit is reached, additional eligible Payment Link actions are explicitly marked as simulated.
+
+They are:
+
+* not sent to Razorpay
+* recorded in the audit trail
+* not counted as real recovery
 
 ---
 
-## Razorpay TEST MODE Integration
+# Razorpay TEST MODE Integration
 
-Credentials are loaded from environment variables and never hardcoded.
+The project uses Razorpay TEST MODE APIs.
+
+Credentials are loaded from environment variables and are never hardcoded.
 
 `.env.example`:
 
@@ -202,231 +307,566 @@ RAZORPAY_KEY_SECRET=xxxx
 MAX_REAL_API_CALLS=20
 ```
 
-Eligible `SEND_NEW_LINK` actions create a Razorpay Payment Link via the
-TEST MODE API, using:
+Eligible `SEND_NEW_LINK` actions create a Payment Link using:
 
 ```text
-amount, currency, customer name, customer email,
-customer phone, reference_id
+amount
+currency
+customer name
+customer email
+customer phone
+reference_id
 ```
 
-Every request and response is written to `logs/razorpay_api.log`
-(credentials excluded).
-
-### Test-mode Payment Link cap
-
-Razorpay TEST MODE limits the number of Payment Links a business can
-create. Since a batch can contain up to 100 failed payments, issuing a
-real link for every eligible record isn't realistic in a test
-environment, so this is handled explicitly via:
-
-```env
-MAX_REAL_API_CALLS=20
-```
-
-Only `SEND_NEW_LINK` actions consume a real API slot. Once the cap is
-reached, remaining eligible actions are marked
-`simulated_due_to_test_mode_cap` — logged, never silently skipped, and
-never counted as real recovery.
-
----
-
-## Recovery Metrics
-
-Creating a Payment Link successfully does not mean the customer paid it.
-To avoid overstating results, recovery is tracked at three distinct
-levels:
-
-| Tier | Meaning |
-|---|---|
-| **Confirmed settlement** | Razorpay confirms the payment was actually completed |
-| **Recovery action triggered** | A real API call succeeded (e.g. link created) — action taken, payment not yet confirmed |
-| **Simulated** | The API cap was reached; logged as what would have been attempted, excluded from the metrics above |
-
-The headline recovery rate is based on confirmed settlements only.
-"Actions triggered" is reported as a separate, clearly labeled secondary
-metric — the two are never blended into one number.
-
----
-
-## SQLite Audit Trail
-
-Managed entirely through Python's built-in `sqlite3` module — no external
-database server required. Stored at `database/audit.db`.
-
-Each record captures:
+Every Razorpay request and response is logged to:
 
 ```text
-timestamp, payment_id, customer_name, email, amount,
-failure_reason, payment_type, attempt_count,
-decision, decision_reason, action_taken,
-api_request, api_response, api_status_code,
-outcome, recovery_type, real_api_call, simulated, notes
+logs/razorpay_api.log
 ```
 
-This table is the project's explainability layer — it answers both *why*
-a decision was made and *what happened* afterward.
+Credentials are excluded from the API logs.
 
 ---
 
-## Reporting
+# Confirmed Settlement Tracking
 
-`app/reporter.py` generates `output/report.md`, containing:
+This is one of the core features of the project.
 
-- Total amount at risk
-- Confirmed settlement amount and count (headline rate)
-- Recovery-actions-triggered amount and count (secondary metric)
-- Simulated amount and count (excluded from both rates above)
-- Failure-reason breakdown
-- Exceptions: every `ESCALATE_HUMAN` and `DO_NOT_RETRY` record, with the
-  reason it was excluded from automated recovery
+A successful Payment Link creation is **not** treated as recovered revenue.
 
----
-
-## Dashboard
-
-A lightweight, read-only dashboard (`dashboard/index.html` +
-`dashboard/server.py`) visualizes the current audit database.
+The workflow is:
 
 ```text
-SQLite  ->  server.py (/api/dashboard)  ->  index.html  ->  Browser
+POST /payment_links
+        |
+        v
+Payment Link created
+        |
+        v
+GET /payment_links/{id}
+        |
+        v
+Check settlement status
 ```
 
-Displays: total amount at risk, real recovery amount and rate, payments
-processed / audit coverage, real API calls used, simulated recovery
-amount, still-failed and escalated payments, failure-reason breakdown,
-and exceptions.
+A recovery is confirmed only when:
 
-The dashboard is a visualization convenience — the recovery logic runs
-and is fully tested independently of it.
+```text
+status == "paid"
+```
+
+and:
+
+```text
+amount_paid > 0
+```
+
+### Example
+
+```text
+Payment Link created
+        |
+        v
+status = created
+amount_paid = ₹0
+        |
+        v
+AWAITING_PAYMENT
+        |
+        v
+₹0 confirmed revenue
+```
+
+Compared with:
+
+```text
+Payment Link created
+        |
+        v
+status = paid
+amount_paid = ₹999
+        |
+        v
+CONFIRMED_SETTLEMENT
+        |
+        v
+₹999 confirmed recovered revenue
+```
+
+This prevents the system from inflating recovery numbers by treating API activity as financial recovery.
 
 ---
 
-## Getting Started
+# Recovery Metrics
 
-**Clone and set up a virtual environment:**
+The project separates recovery into three categories.
+
+| Metric                        | Meaning                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| **Confirmed settlement**      | Razorpay confirms the customer actually paid                                 |
+| **Recovery action triggered** | A real recovery API action succeeded, but payment has not yet been confirmed |
+| **Simulated**                 | Action could not be executed because the TEST MODE API cap was reached       |
+
+The headline recovery metric is based on **confirmed settlements only**.
+
+The system never combines:
+
+```text
+Payment Link created
+```
+
+with:
+
+```text
+Payment actually completed
+```
+
+as if they were the same event.
+
+---
+
+# SQLite Audit Trail
+
+The project uses Python's built-in `sqlite3` module.
+
+No external database server is required.
+
+The database is stored at:
+
+```text
+database/audit.db
+```
+
+The audit trail records:
+
+```text
+timestamp
+payment_id
+customer_name
+email
+amount
+failure_reason
+payment_type
+attempt_count
+
+decision
+decision_reason
+action_taken
+
+api_request
+api_response
+api_status_code
+
+outcome
+recovery_type
+real_api_call
+simulated
+notes
+
+payment_link_id
+settlement_status
+settlement_confirmed
+settlement_amount
+settlement_amount_paid
+settlement_payment_id
+settlement_api_status_code
+settlement_error
+settlement_checked_at
+```
+
+The database schema supports automatic migration so newly introduced settlement columns can be added to an existing development database without manually recreating it.
+
+The audit trail provides the explainability layer for the system:
+
+```text
+Why did the agent make this decision?
+What action did it take?
+Did Razorpay accept the action?
+Was the payment actually completed?
+How much money was actually recovered?
+```
+
+---
+
+# Reporting
+
+`app/reporter.py` generates:
+
+```text
+output/report.md
+```
+
+The report includes:
+
+* Total amount at risk
+* Confirmed settlement amount
+* Confirmed settlement count
+* Confirmed recovery rate
+* Recovery actions triggered
+* Simulated actions
+* Failure-reason breakdown
+* Escalated payments
+* Payments blocked by stopping rules
+* Recovery exceptions
+
+Confirmed recovery and triggered actions are reported separately.
+
+---
+
+# Dashboard
+
+The project includes a lightweight local dashboard:
+
+```text
+dashboard/index.html
+dashboard/server.py
+```
+
+The dashboard reads current data from the SQLite audit database through:
+
+```text
+GET /api/dashboard
+```
+
+It can display:
+
+* Total amount at risk
+* Confirmed recovered amount
+* Confirmed recovery rate
+* Payments processed
+* Audit coverage
+* Real Razorpay API calls
+* Payment Links created
+* Awaiting-payment amount
+* Simulated actions
+* Still-failed payments
+* Escalated payments
+* Failure-reason breakdown
+* Exceptions
+
+The dashboard is intentionally kept separate from the recovery engine.
+
+It is a visualization layer, not the agent itself.
+
+---
+
+# Getting Started
+
+## 1. Clone the repository
+
+```bash
+git clone <your-repository-url>
+cd failed-payment-recovery-agent
+```
+
+## 2. Create a virtual environment
 
 ```bash
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+```
+
+Windows:
+
+```powershell
+venv\Scripts\activate
+```
+
+Linux/macOS:
+
+```bash
+source venv/bin/activate
+```
+
+## 3. Install dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-**Configure Razorpay:**
+Current dependencies:
 
-```bash
-cp .env.example .env
+```text
+requests
+python-dotenv
+pytest
 ```
 
-Add your TEST MODE credentials to `.env`. Never commit this file.
+## 4. Configure Razorpay
 
-**Generate synthetic data:**
+Copy:
+
+```text
+.env.example
+```
+
+to:
+
+```text
+.env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Add your Razorpay TEST MODE credentials:
+
+```env
+RAZORPAY_KEY_ID=rzp_test_xxxx
+RAZORPAY_KEY_SECRET=xxxx
+MAX_REAL_API_CALLS=20
+```
+
+Never commit `.env`.
+
+## 5. Generate synthetic payments
 
 ```bash
 python -m app.generator
 ```
 
-**Run the recovery pipeline:**
+## 6. Run the recovery agent
 
 ```bash
 python run.py
 ```
 
-Pipeline flow:
+The pipeline is:
 
 ```text
-Load dataset -> Validate -> Init SQLite -> Process payments
--> Apply decision rules -> Call Razorpay TEST MODE (within cap)
--> Write audit records -> Verify audit coverage -> Generate report
+Load dataset
+    ↓
+Validate dataset
+    ↓
+Initialize SQLite
+    ↓
+Process payments
+    ↓
+Apply decision rules
+    ↓
+Execute eligible Razorpay TEST MODE actions
+    ↓
+Check Payment Link settlement status
+    ↓
+Write audit records
+    ↓
+Verify audit coverage
+    ↓
+Generate report
 ```
 
-**Start the dashboard** (after a batch has been processed):
+---
+
+# Running the Dashboard
+
+After processing a batch:
 
 ```bash
 python dashboard/server.py
 ```
 
-Open `http://127.0.0.1:5000`. Do not open `dashboard/index.html` directly
-via `file://` — it fetches live data from `/api/dashboard`, which
-requires the server to be running.
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+Do **not** open `dashboard/index.html` directly using `file://`.
+
+The HTML dashboard fetches live data from:
+
+```text
+/api/dashboard
+```
+
+which requires the dashboard server.
 
 ---
 
-## Testing
+# Testing
+
+Run the complete test suite:
 
 ```bash
 python -m pytest tests -v
 ```
 
-Covers: decision rules for every failure reason, retry limits, OTP
-handling and fraud escalation, subscription mandate handling, the
-max-attempts override, duplicate-retry protection, API cap enforcement
-and error handling, audit logging completeness, the confirmed / triggered
-/ simulated separation, report generation, and backend behavior
-independent of the dashboard.
+The test suite covers:
+
+* Decision rules
+* Retry limits
+* Fraud escalation
+* OTP handling
+* Mandate handling
+* Maximum-attempt stopping rule
+* Duplicate-retry protection
+* Payment Link API cap
+* Razorpay API error handling
+* Confirmed settlement tracking
+* Unpaid Payment Links
+* Confirmed paid Payment Links
+* Audit logging
+* Real/simulated separation
+* Recovery reporting
+* Dashboard-independent backend behavior
+
+The current project test suite contains **34 automated tests**.
 
 ---
 
-## Example Output
+# Example Recovery Flow
 
-From an actual end-to-end run:
+Consider this failed payment:
 
 ```text
-Records processed: 98
-Total amount at risk: ₹347,402.00
-
-Real Razorpay API calls: 12 / 20 (cap)
-Recovery actions triggered: ₹9,996.00 (12 records)
-Audit coverage: 98 / 98
+Payment ID: pay_test_0003
+Failure: mandate_failed
+Type: one-time
+Amount: ₹3,999
 ```
 
-Full metrics, including the confirmed-settlement breakdown, are written
-to `output/report.md`.
+The decision engine determines:
+
+```text
+SEND_NEW_LINK
+```
+
+The processor creates a Razorpay TEST MODE Payment Link.
+
+The system then checks the Payment Link:
+
+```text
+status = created
+amount_paid = ₹0
+```
+
+Therefore:
+
+```text
+Action:
+PAYMENT_LINK_CREATED
+
+Outcome:
+awaiting_payment
+
+Recovery:
+NOT CONFIRMED
+```
+
+If the customer subsequently completes the Payment Link and Razorpay reports:
+
+```text
+status = paid
+amount_paid = ₹3,999
+```
+
+the record becomes:
+
+```text
+Outcome:
+confirmed_settlement
+
+Recovery type:
+real
+
+Confirmed recovered:
+₹3,999
+```
 
 ---
 
-## API Failure Handling
+# Design Principles
 
-Razorpay may return `HTTP 429 Too Many Requests` under load. When this
-happens, the response is logged, the API attempt is recorded in the audit
-trail, and the action is not counted as recovered — an API error is never
-converted into a successful recovery.
+### 1. Deterministic recovery decisions
+
+Financial recovery decisions are made through explicit rules rather than an LLM.
+
+This makes decisions:
+
+* Predictable
+* Testable
+* Explainable
+* Auditable
+
+### 2. Confirm before counting revenue
+
+The system does not claim money was recovered merely because an API request succeeded.
+
+```text
+API success ≠ Payment success
+```
+
+### 3. Bounded automation
+
+The agent operates under explicit:
+
+* Retry limits
+* Duplicate protections
+* Fraud protections
+* API limits
+* Human escalation rules
+
+### 4. Honest reporting
+
+Real, simulated, triggered, and confirmed outcomes are kept separate.
+
+### 5. Auditability
+
+Every processed payment produces an audit record containing the decision, reason, action, API result, outcome, and settlement information where applicable.
+
+### 6. Dashboard independence
+
+The dashboard cannot influence the recovery engine.
+
+The backend works independently and can be tested without the dashboard.
 
 ---
 
-## Security
+# Limitations
 
-- Never commit `.env` — only `.env.example` is tracked.
-- Use TEST MODE credentials only (`rzp_test_*`).
-- Confirm with `git status` before every commit that `.env` and `venv/`
-  are not staged.
-
----
-
-## Design Notes
-
-- **Deterministic over generative** — the decision engine uses explicit
-  rules rather than an LLM, so every action is predictable and testable.
-- **No inflated metrics** — a created Payment Link is a triggered action,
-  not a confirmed payment; the two are never conflated in reporting.
-- **Explicit constraint handling** — the TEST MODE Payment Link cap is
-  handled as a first-class case, not worked around silently.
-- **Minimal surface area** — the dashboard is a visualization layer, not
-  a dependency of the core pipeline.
+* Razorpay integration uses TEST MODE only.
+* No real customer payments are processed.
+* Creating a Payment Link does not guarantee payment.
+* Confirmed recovery requires a successful Razorpay settlement status check.
+* The synthetic dataset does not represent real customer data.
+* `RETRY_LATER` currently represents a scheduled recovery decision; a production-grade external scheduler would be required for persistent background execution.
+* The dashboard currently focuses on the current audit dataset rather than long-term historical analytics.
 
 ---
 
-## Limitations
+# Future Improvements
 
-- This project uses Razorpay TEST MODE only; no real payments are
-  processed.
-- A successfully created Payment Link indicates a recovery action was
-  triggered — it does not by itself confirm the customer paid.
-- The synthetic dataset is generated locally and does not reflect real
-  customer or transaction data.
+Potential extensions include:
+
+* Persistent retry scheduler
+* CSV upload through the dashboard
+* Historical batch tracking
+* Recovery trend analytics
+* Production payment-provider abstraction
+* Customer notification integrations
+* Multi-provider payment support
+* Production database such as PostgreSQL
+* Authentication and role-based dashboard access
+
+These are intentionally separate from the current core recovery engine.
 
 ---
 
-## License
+# Security
+
+* Never commit `.env`
+* Use Razorpay TEST MODE credentials
+* Never hardcode API credentials
+* Do not expose API secrets in logs
+* Check `git status` before committing
+* Keep `venv/` out of version control
+* Keep generated runtime databases and logs out of version control
+
+---
+
+# License
 
 MIT
+

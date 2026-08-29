@@ -9,12 +9,28 @@ class FakeRazorpayClient:
     It behaves like a successful Payment Link API without
     making any real network request.
 
-    This lets us test the processor's 20-call safety cap
-    without consuming real Razorpay Test Mode Payment Links.
+    Settlement status can be configured per instance so
+    tests can verify both:
+
+        - Payment Link created but unpaid.
+        - Payment Link actually paid.
+
+    This lets us test the processor's recovery logic and
+    20-call safety cap without consuming real Razorpay
+    Test Mode Payment Links.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        settlement_confirmed=False,
+    ):
         self.calls = []
+
+        self.settlement_confirmed = (
+            settlement_confirmed
+        )
+
+        self.settlement_checks = []
 
     def create_payment_link(
         self,
@@ -34,11 +50,15 @@ class FakeRazorpayClient:
             }
         )
 
+        payment_link_id = (
+            f"fake_plink_{reference_id}"
+        )
+
         return {
             "success": True,
             "status_code": 200,
             "data": {
-                "id": f"fake_plink_{reference_id}",
+                "id": payment_link_id,
                 "short_url": (
                     f"https://example.com/"
                     f"{reference_id}"
@@ -57,6 +77,69 @@ class FakeRazorpayClient:
                     ),
                     "currency": "INR",
                 },
+            },
+        }
+
+    def check_payment_link_settlement(
+        self,
+        payment_link_id,
+    ):
+        """
+        Fake the Razorpay Payment Link status check.
+
+        By default the fake link is unpaid.
+
+        Tests can create:
+
+            FakeRazorpayClient(
+                settlement_confirmed=True
+            )
+
+        to simulate an actually paid Payment Link.
+        """
+
+        self.settlement_checks.append(
+            payment_link_id
+        )
+
+        if self.settlement_confirmed:
+            return {
+                "success": True,
+                "confirmed": True,
+                "status": "paid",
+                "amount": 1000.00,
+                "amount_paid": 1000.00,
+                "payment_link_id": (
+                    payment_link_id
+                ),
+                "payment_id": (
+                    f"pay_{payment_link_id}"
+                ),
+                "error": None,
+                "api_status_code": 200,
+                "api_response": {
+                    "status": "paid",
+                    "amount": 100000,
+                    "amount_paid": 100000,
+                },
+            }
+
+        return {
+            "success": True,
+            "confirmed": False,
+            "status": "created",
+            "amount": 1000.00,
+            "amount_paid": 0.00,
+            "payment_link_id": (
+                payment_link_id
+            ),
+            "payment_id": None,
+            "error": None,
+            "api_status_code": 200,
+            "api_response": {
+                "status": "created",
+                "amount": 100000,
+                "amount_paid": 0,
             },
         }
 
@@ -111,6 +194,8 @@ def test_payment_link_api_cap():
     - Records after 20 do NOT make API calls.
     - Records after 20 are explicitly marked as simulated.
     - The processor never exceeds the configured cap.
+    - Payment Link creation is NOT counted as confirmed
+      recovery unless settlement is confirmed.
     """
 
     fake_razorpay = FakeRazorpayClient()
@@ -133,22 +218,46 @@ def test_payment_link_api_cap():
         payments
     )
 
-    # Exactly 20 real API requests.
+    # Exactly 20 real Payment Link creation calls.
     assert len(
         fake_razorpay.calls
     ) == 20
 
     assert processor.real_api_calls == 20
 
-    # First 20 are real recoveries.
-    real_results = [
+    # All first 20 links were created by the real API,
+    # but none are confirmed because the fake settlement
+    # state is "created".
+    real_api_results = [
         result
         for result in results
-        if result.get("recovery_type")
-        == "real"
+        if result.get("real_api_call") is True
     ]
 
-    assert len(real_results) == 20
+    assert len(
+        real_api_results
+    ) == 20
+
+    for result in real_api_results:
+        assert (
+            result["action_taken"]
+            == "PAYMENT_LINK_CREATED"
+        )
+
+        assert (
+            result["outcome"]
+            == "awaiting_payment"
+        )
+
+        assert (
+            result["recovery_type"]
+            == "none"
+        )
+
+        assert (
+            result["settlement_confirmed"]
+            is False
+        )
 
     # Remaining 5 are explicitly simulated.
     simulated_results = [
@@ -157,10 +266,10 @@ def test_payment_link_api_cap():
         if result.get("simulated") is True
     ]
 
-    assert len(simulated_results) == 5
+    assert len(
+        simulated_results
+    ) == 5
 
-    # Every simulated record must have the exact required
-    # action marker.
     for result in simulated_results:
         assert (
             result["action_taken"]
@@ -171,13 +280,16 @@ def test_payment_link_api_cap():
 
         assert result["outcome"] == "still_failed"
 
-    # No record after the cap can be marked as a real
-    # recovery.
-    for result in results[20:]:
         assert (
             result["recovery_type"]
             == "simulated"
         )
+
+    # Exactly 20 settlement checks should have been made
+    # because exactly 20 real Payment Links were created.
+    assert len(
+        fake_razorpay.settlement_checks
+    ) == 20
 
 
 # ---------------------------------------------------------
@@ -214,6 +326,10 @@ def test_fraud_block_never_calls_razorpay():
 
     assert len(
         fake_razorpay.calls
+    ) == 0
+
+    assert len(
+        fake_razorpay.settlement_checks
     ) == 0
 
 
@@ -253,18 +369,34 @@ def test_otp_failure_sends_reminder():
         fake_razorpay.calls
     ) == 0
 
+    assert len(
+        fake_razorpay.settlement_checks
+    ) == 0
+
 
 # ---------------------------------------------------------
-# Successful Payment Link
+# Payment Link created but unpaid
 # ---------------------------------------------------------
 
-def test_successful_payment_link_is_real_recovery():
+def test_payment_link_creation_is_not_recovery():
     """
-    A successful Payment Link API response should be
-    recorded as a real API recovery operation.
+    Creating a Payment Link successfully must NOT be counted
+    as recovered revenue.
+
+    The fake Razorpay status is:
+
+        created
+        amount_paid = 0
+
+    Therefore the result must remain:
+
+        awaiting_payment
+        recovery_type = none
     """
 
-    fake_razorpay = FakeRazorpayClient()
+    fake_razorpay = FakeRazorpayClient(
+        settlement_confirmed=False
+    )
 
     fake_audit = FakeAuditLogger()
 
@@ -274,7 +406,7 @@ def test_successful_payment_link_is_real_recovery():
     )
 
     payment = make_payment(
-        "real_recovery_001",
+        "unpaid_recovery_001",
         failure_reason="card_expired",
     )
 
@@ -284,22 +416,146 @@ def test_successful_payment_link_is_real_recovery():
 
     assert result["decision"] == "SEND_NEW_LINK"
 
-    assert result["outcome"] == "recovered"
+    assert (
+        result["action_taken"]
+        == "PAYMENT_LINK_CREATED"
+    )
 
-    assert result["recovery_type"] == "real"
+    assert (
+        result["outcome"]
+        == "awaiting_payment"
+    )
+
+    assert (
+        result["recovery_type"]
+        == "none"
+    )
 
     assert result["real_api_call"] is True
 
     assert result["simulated"] is False
 
     assert (
+        result["settlement_status"]
+        == "created"
+    )
+
+    assert (
+        result["settlement_confirmed"]
+        is False
+    )
+
+    assert (
+        result["settlement_amount_paid"]
+        == 0.00
+    )
+
+    assert (
+        result["settlement_payment_id"]
+        is None
+    )
+
+    assert (
         result["payment_link"]
         == "https://example.com/"
-        "real_recovery_001"
+        "unpaid_recovery_001"
     )
 
     assert len(
         fake_razorpay.calls
+    ) == 1
+
+    assert len(
+        fake_razorpay.settlement_checks
+    ) == 1
+
+
+# ---------------------------------------------------------
+# Confirmed settlement
+# ---------------------------------------------------------
+
+def test_confirmed_payment_link_is_real_recovery():
+    """
+    A Payment Link is counted as real recovered revenue
+    only when the settlement check confirms:
+
+        status == paid
+        amount_paid > 0
+    """
+
+    fake_razorpay = FakeRazorpayClient(
+        settlement_confirmed=True
+    )
+
+    fake_audit = FakeAuditLogger()
+
+    processor = PaymentProcessor(
+        razorpay_client=fake_razorpay,
+        audit_logger=fake_audit,
+    )
+
+    payment = make_payment(
+        "confirmed_recovery_001",
+        failure_reason="card_expired",
+    )
+
+    result = processor.process_payment(
+        payment
+    )
+
+    assert result["decision"] == "SEND_NEW_LINK"
+
+    assert (
+        result["action_taken"]
+        == "PAYMENT_LINK_CREATED"
+    )
+
+    assert (
+        result["outcome"]
+        == "confirmed_settlement"
+    )
+
+    assert (
+        result["recovery_type"]
+        == "real"
+    )
+
+    assert result["real_api_call"] is True
+
+    assert result["simulated"] is False
+
+    assert (
+        result["settlement_status"]
+        == "paid"
+    )
+
+    assert (
+        result["settlement_confirmed"]
+        is True
+    )
+
+    assert (
+        result["settlement_amount_paid"]
+        == 1000.00
+    )
+
+    assert (
+        result["settlement_payment_id"]
+        == "pay_fake_plink_confirmed_recovery_001"
+    )
+
+    assert (
+        result["payment_link"]
+        == "https://example.com/"
+        "confirmed_recovery_001"
+    )
+
+    assert len(
+        fake_razorpay.calls
+    ) == 1
+
+    assert len(
+        fake_razorpay.settlement_checks
     ) == 1
 
 

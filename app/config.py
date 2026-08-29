@@ -50,6 +50,19 @@ RAZORPAY_BASE_URL = (
     "https://api.razorpay.com/v1"
 )
 
+# ---------------------------------------------------------
+# OpenAI configuration
+# ---------------------------------------------------------
+
+OPENAI_API_KEY = os.getenv(
+    "OPENAI_API_KEY",
+    "",
+).strip()
+
+OPENAI_MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "gpt-5.6-luna",
+).strip()
 
 # ---------------------------------------------------------
 # Test Mode API safety cap
@@ -194,5 +207,14 @@ if __name__ == "__main__":
         f"{MIN_SYNTHETIC_RECORDS}-"
         f"{MAX_SYNTHETIC_RECORDS}",
     )
+    print(
+        "OpenAI API key configured:",
+        bool(OPENAI_API_KEY),
+    )
 
+    print(
+        "OpenAI model:",
+        OPENAI_MODEL,
+    )
     print("=" * 60)
+ 
