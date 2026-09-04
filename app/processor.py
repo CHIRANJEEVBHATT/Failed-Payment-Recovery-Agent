@@ -10,8 +10,10 @@ from app.decision_engine import (
     SEND_NEW_LINK,
     SEND_REMINDER,
     decide,
+    decide_checkout_recovery,
 )
-from app.models import FailedPayment
+
+from app.models import CheckoutSession, FailedPayment
 from app.razorpay_client import RazorpayClient
 
 
@@ -318,6 +320,345 @@ class PaymentProcessor:
         )
 
         return result
+
+        # -----------------------------------------------------
+    # Checkout drop-off
+    # -----------------------------------------------------
+
+    @staticmethod
+    def _simulate_checkout_followup(
+        session: CheckoutSession,
+    ) -> bool:
+        """
+        Simulate whether a customer returns after a checkout
+        recovery reminder.
+
+        This is deterministic so every demo run is reproducible.
+        Even-numbered synthetic checkout IDs return and complete;
+        odd-numbered IDs remain abandoned.
+
+        IMPORTANT:
+            This is synthetic demo behavior. A simulated checkout
+            recovery is never counted as real Razorpay revenue.
+        """
+
+        try:
+            checkout_number = int(
+                session.checkout_id.rsplit("_", 1)[-1]
+            )
+        except (ValueError, IndexError):
+            return False
+
+        return checkout_number % 2 == 0
+
+    def _write_checkout_audit(
+        self,
+        session: CheckoutSession,
+        result: dict,
+    ) -> None:
+        """
+        Write exactly one audit record for a checkout session.
+        """
+
+        self.audit_logger.log(
+            payment_id=None,
+            customer_name=None,
+            email=None,
+            amount=session.amount,
+            failure_reason=None,
+            payment_type="checkout",
+            attempt_count=0,
+            decision=result["decision"],
+            decision_reason=result["reason"],
+            action_taken=result["action_taken"],
+            outcome=result["outcome"],
+            recovery_type=result["recovery_type"],
+            real_api_call=result["real_api_call"],
+            simulated=result["simulated"],
+            notes=result["notes"],
+            record_type="checkout",
+            checkout_id=session.checkout_id,
+            customer_id=session.customer_id,
+            currency=session.currency,
+            started_at=session.started_at.isoformat(
+                timespec="seconds"
+            ),
+            timestamp=result["timestamp"],
+        )
+
+    def process_checkout(
+        self,
+        session: CheckoutSession,
+    ) -> dict:
+        """
+        Process one checkout session.
+
+        Workflow:
+
+            1. Observe checkout state.
+            2. Decide whether recovery is appropriate.
+            3. Send a reminder for an eligible drop-off.
+            4. Simulate a customer return/completion event.
+            5. Record the verified demo outcome.
+
+        No payment is automatically charged.
+
+        Simulated checkout recovery is clearly separated from
+        real Razorpay settlement recovery.
+        """
+
+        decision = decide_checkout_recovery(session)
+
+        result = {
+            "timestamp": datetime.now().isoformat(
+                timespec="seconds"
+            ),
+            "checkout_id": session.checkout_id,
+            "customer_id": session.customer_id,
+            "amount": session.amount,
+            "currency": session.currency,
+            "started_at": session.started_at.isoformat(
+                timespec="seconds"
+            ),
+            "completed": session.completed,
+            "decision": decision["action"],
+            "reason": decision["reason"],
+            "action_taken": None,
+            "outcome": None,
+            "recovery_type": "none",
+            "real_api_call": False,
+            "simulated": False,
+            "customer_returned": False,
+            "notes": None,
+        }
+
+        # -------------------------------------------------
+        # Already completed
+        # -------------------------------------------------
+
+        if decision["action"] == "NO_ACTION":
+            result.update(
+                {
+                    "action_taken": "NO_ACTION",
+                    "outcome": "already_completed",
+                    "notes": (
+                        "Checkout was already completed. "
+                        "No recovery action was required."
+                    ),
+                }
+            )
+
+            self._write_checkout_audit(
+                session,
+                result,
+            )
+
+            return result
+
+        # -------------------------------------------------
+        # Too recent
+        # -------------------------------------------------
+
+        if decision["action"] == "WAIT":
+            result.update(
+                {
+                    "action_taken": "WAIT",
+                    "outcome": "waiting",
+                    "notes": (
+                        "Checkout is too recent for recovery. "
+                        "No reminder was sent."
+                    ),
+                }
+            )
+
+            self._write_checkout_audit(
+                session,
+                result,
+            )
+
+            return result
+
+        # -------------------------------------------------
+        # Abandoned checkout
+        # -------------------------------------------------
+
+        if decision["action"] == "SEND_CHECKOUT_REMINDER":
+            customer_returned = (
+                self._simulate_checkout_followup(
+                    session
+                )
+            )
+
+            result["action_taken"] = (
+                "CHECKOUT_REMINDER_SENT"
+            )
+            result["customer_returned"] = (
+                customer_returned
+            )
+            result["simulated"] = True
+
+            if customer_returned:
+                result.update(
+                    {
+                        "outcome": "checkout_recovered",
+                        "recovery_type": "simulated",
+                        "notes": (
+                            "Recovery reminder was sent. "
+                            "The synthetic customer returned "
+                            "and completed checkout. This is "
+                            "simulated recovery and is NOT "
+                            "counted as real Razorpay revenue."
+                        ),
+                    }
+                )
+            else:
+                result.update(
+                    {
+                        "outcome": "still_abandoned",
+                        "recovery_type": "none",
+                        "notes": (
+                            "Recovery reminder was sent, but "
+                            "the synthetic customer did not "
+                            "return. No recovered revenue is "
+                            "counted."
+                        ),
+                    }
+                )
+
+            self._write_checkout_audit(
+                session,
+                result,
+            )
+
+            return result
+
+        # -------------------------------------------------
+        # Safety fallback
+        # -------------------------------------------------
+
+        result.update(
+            {
+                "action_taken": "ESCALATE_HUMAN",
+                "outcome": "escalated",
+                "notes": (
+                    "Unknown checkout recovery action. "
+                    "Escalated for safety."
+                ),
+            }
+        )
+
+        self._write_checkout_audit(
+            session,
+            result,
+        )
+
+        return result
+
+    def process_checkout_batch(
+        self,
+        sessions: list[CheckoutSession],
+    ) -> list[dict]:
+        """
+        Process a batch of checkout sessions.
+        """
+
+        results = []
+
+        print()
+        print("=" * 70)
+        print("CHECKOUT DROP-OFF RECOVERY")
+        print("=" * 70)
+
+        print(
+            f"Checkout sessions to process: "
+            f"{len(sessions)}"
+        )
+
+        print("=" * 70)
+
+        for index, session in enumerate(
+            sessions,
+            start=1,
+        ):
+            result = self.process_checkout(
+                session
+            )
+
+            results.append(result)
+
+            print(
+                f"[{index}/{len(sessions)}] "
+                f"{session.checkout_id} | "
+                f"₹{session.amount:.2f}"
+            )
+
+            print(
+                f"    Decision: "
+                f"{result['decision']}"
+            )
+
+            print(
+                f"    Action:   "
+                f"{result['action_taken']}"
+            )
+
+            print(
+                f"    Outcome:  "
+                f"{result['outcome']}"
+            )
+
+            if result.get("customer_returned"):
+                print(
+                    "    Customer: RETURNED"
+                )
+
+        print("=" * 70)
+
+        recovered = sum(
+            1
+            for result in results
+            if result.get("outcome")
+            == "checkout_recovered"
+        )
+
+        recovered_amount = sum(
+            result["amount"]
+            for result in results
+            if result.get("outcome")
+            == "checkout_recovered"
+        )
+
+        reminders = sum(
+            1
+            for result in results
+            if result.get("action_taken")
+            == "CHECKOUT_REMINDER_SENT"
+        )
+
+        still_abandoned = sum(
+            1
+            for result in results
+            if result.get("outcome")
+            == "still_abandoned"
+        )
+
+        print(
+            f"Checkout reminders sent: {reminders}"
+        )
+        print(
+            f"Customers returned: {recovered}"
+        )
+        print(
+            f"Simulated checkout recovery: "
+            f"₹{recovered_amount:.2f}"
+        )
+        print(
+            f"Still abandoned: {still_abandoned}"
+        )
+
+        print("=" * 70)
+
+        return results
 
     # -----------------------------------------------------
     # Payment Link handling

@@ -1,6 +1,7 @@
 import csv
 import json
 import random
+import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -10,6 +11,8 @@ from app.config import (
     MAX_SYNTHETIC_RECORDS,
     MIN_SYNTHETIC_RECORDS,
 )
+
+from app.models import CheckoutSession, FailedPayment
 from app.models import FailedPayment
 
 
@@ -366,6 +369,52 @@ def generate_and_save_data() -> list[FailedPayment]:
 
     return payments
 
+def generate_checkout_dropoffs(
+    count: int = 20,
+) -> list[CheckoutSession]:
+    """
+    Generate synthetic checkout sessions.
+
+    Some sessions are completed and some are abandoned.
+    Abandoned sessions older than 30 minutes represent
+    potential revenue at risk.
+    """
+
+    sessions = []
+
+    for index in range(1, count + 1):
+        checkout_id = f"checkout_test_{index:04d}"
+        customer_id = f"cust_{random.randint(1000, 9999)}"
+
+        amount = generate_amount()
+
+        started_at = datetime.now() - timedelta(
+            minutes=random.randint(30, 1440)
+        )
+
+        # Roughly 65% completed, 35% abandoned.
+        completed = random.random() < 0.65
+
+        completed_at = None
+
+        if completed:
+            completed_at = started_at + timedelta(
+                minutes=random.randint(1, 20)
+            )
+
+        sessions.append(
+            CheckoutSession(
+                checkout_id=checkout_id,
+                customer_id=customer_id,
+                amount=amount,
+                currency="INR",
+                started_at=started_at,
+                completed=completed,
+                completed_at=completed_at,
+            )
+        )
+
+    return sessions
 
 # ---------------------------------------------------------
 # Direct execution

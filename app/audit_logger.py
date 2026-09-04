@@ -15,6 +15,10 @@ class AuditLogger:
     outcomes, and confirmed settlement information for
     the current processing batch.
 
+    Supports both:
+    - Failed payment recovery records
+    - Checkout drop-off recovery records
+
     Complex Python objects such as dictionaries and lists
     are converted to JSON strings before being stored.
     """
@@ -71,7 +75,13 @@ class AuditLogger:
 
                     timestamp TEXT NOT NULL,
 
-                    payment_id TEXT NOT NULL,
+                    record_type TEXT DEFAULT 'payment',
+                    checkout_id TEXT,
+                    customer_id TEXT,
+                    currency TEXT,
+                    started_at TEXT,
+
+                    payment_id TEXT,
                     customer_name TEXT,
                     email TEXT,
                     amount REAL,
@@ -147,23 +157,35 @@ class AuditLogger:
 
         required_columns = {
             "timestamp": "TEXT",
+            "record_type": "TEXT DEFAULT 'payment'",
+            "checkout_id": "TEXT",
+            "customer_id": "TEXT",
+            "currency": "TEXT",
+            "started_at": "TEXT",
+
             "payment_id": "TEXT",
             "customer_name": "TEXT",
             "email": "TEXT",
             "amount": "REAL",
+
             "failure_reason": "TEXT",
             "payment_type": "TEXT",
             "attempt_count": "INTEGER",
+
             "decision": "TEXT",
             "decision_reason": "TEXT",
             "action_taken": "TEXT",
+
             "api_request": "TEXT",
             "api_response": "TEXT",
             "api_status_code": "INTEGER",
+
             "outcome": "TEXT",
             "recovery_type": "TEXT",
+
             "real_api_call": "INTEGER DEFAULT 0",
             "simulated": "INTEGER DEFAULT 0",
+
             "notes": "TEXT",
 
             # -------------------------------------------------
@@ -171,29 +193,21 @@ class AuditLogger:
             # -------------------------------------------------
 
             "payment_link_id": "TEXT",
-
             "settlement_status": "TEXT",
-
             "settlement_confirmed": (
                 "INTEGER DEFAULT 0"
             ),
-
             "settlement_amount": (
                 "REAL DEFAULT 0"
             ),
-
             "settlement_amount_paid": (
                 "REAL DEFAULT 0"
             ),
-
             "settlement_payment_id": "TEXT",
-
             "settlement_api_status_code": (
                 "INTEGER"
             ),
-
             "settlement_error": "TEXT",
-
             "settlement_checked_at": "TEXT",
         }
 
@@ -303,11 +317,11 @@ class AuditLogger:
 
     def log(
         self,
-        payment_id: str,
-        customer_name: str,
-        email: str,
+        payment_id: Optional[str],
+        customer_name: Optional[str],
+        email: Optional[str],
         amount: float,
-        failure_reason: str,
+        failure_reason: Optional[str],
         payment_type: str,
         attempt_count: int,
         decision: str,
@@ -322,6 +336,16 @@ class AuditLogger:
         simulated: bool = False,
         api_status_code: Optional[int] = None,
         timestamp: Optional[str] = None,
+
+        # -------------------------------------------------
+        # Checkout information
+        # -------------------------------------------------
+
+        record_type: str = "payment",
+        checkout_id: Optional[str] = None,
+        customer_id: Optional[str] = None,
+        currency: Optional[str] = None,
+        started_at: Optional[str] = None,
 
         # -------------------------------------------------
         # Confirmed settlement information
@@ -379,23 +403,38 @@ class AuditLogger:
                 """
                 INSERT INTO audit_logs (
                     timestamp,
+
+                    record_type,
+                    checkout_id,
+                    customer_id,
+                    currency,
+                    started_at,
+
                     payment_id,
                     customer_name,
                     email,
                     amount,
+
                     failure_reason,
                     payment_type,
                     attempt_count,
+
                     decision,
                     decision_reason,
+
                     action_taken,
+
                     api_request,
                     api_response,
                     api_status_code,
+
                     outcome,
+
                     recovery_type,
+
                     real_api_call,
                     simulated,
+
                     notes,
 
                     payment_link_id,
@@ -409,34 +448,57 @@ class AuditLogger:
                     settlement_checked_at
                 )
                 VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?,
+                    ?,
+                    ?, ?, ?,
+                    ?,
+                    ?,
+                    ?, ?,
+                    ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
                     timestamp,
+
+                    record_type,
+                    checkout_id,
+                    customer_id,
+                    currency,
+                    started_at,
+
                     payment_id,
                     customer_name,
                     email,
                     amount,
+
                     failure_reason,
                     payment_type,
                     attempt_count,
+
                     decision,
                     decision_reason,
+
                     action_taken,
+
                     serialized_request,
                     serialized_response,
                     api_status_code,
+
                     outcome,
+
                     recovery_type,
+
                     self._bool_to_int(
                         real_api_call
                     ),
                     self._bool_to_int(
                         simulated
                     ),
+
                     notes,
 
                     payment_link_id,
@@ -493,23 +555,38 @@ class AuditLogger:
                 SELECT
                     id,
                     timestamp,
+
+                    record_type,
+                    checkout_id,
+                    customer_id,
+                    currency,
+                    started_at,
+
                     payment_id,
                     customer_name,
                     email,
                     amount,
+
                     failure_reason,
                     payment_type,
                     attempt_count,
+
                     decision,
                     decision_reason,
+
                     action_taken,
+
                     api_request,
                     api_response,
                     api_status_code,
+
                     outcome,
+
                     recovery_type,
+
                     real_api_call,
                     simulated,
+
                     notes,
 
                     payment_link_id,
@@ -561,23 +638,38 @@ class AuditLogger:
             SELECT
                 id,
                 timestamp,
+
+                record_type,
+                checkout_id,
+                customer_id,
+                currency,
+                started_at,
+
                 payment_id,
                 customer_name,
                 email,
                 amount,
+
                 failure_reason,
                 payment_type,
                 attempt_count,
+
                 decision,
                 decision_reason,
+
                 action_taken,
+
                 api_request,
                 api_response,
                 api_status_code,
+
                 outcome,
+
                 recovery_type,
+
                 real_api_call,
                 simulated,
+
                 notes,
 
                 payment_link_id,
@@ -591,9 +683,11 @@ class AuditLogger:
                 settlement_checked_at
 
             FROM audit_logs
+
             WHERE payment_id IN (
                 {placeholders}
             )
+
             ORDER BY id ASC
         """
 
@@ -638,23 +732,38 @@ class AuditLogger:
                 SELECT
                     id,
                     timestamp,
+
+                    record_type,
+                    checkout_id,
+                    customer_id,
+                    currency,
+                    started_at,
+
                     payment_id,
                     customer_name,
                     email,
                     amount,
+
                     failure_reason,
                     payment_type,
                     attempt_count,
+
                     decision,
                     decision_reason,
+
                     action_taken,
+
                     api_request,
                     api_response,
                     api_status_code,
+
                     outcome,
+
                     recovery_type,
+
                     real_api_call,
                     simulated,
+
                     notes,
 
                     payment_link_id,
@@ -778,4 +887,3 @@ if __name__ == "__main__":
     )
 
     print("=" * 60)
-

@@ -1,8 +1,14 @@
 from collections import defaultdict
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
 from app.config import OUTPUT_DIR
+
+try:
+    from app.config import DATABASE_PATH
+except ImportError:
+    DATABASE_PATH = Path("database") / "audit.db"
 
 
 class RecoveryReporter:
@@ -270,6 +276,107 @@ class RecoveryReporter:
             }
         ]
 
+    @staticmethod
+    def checkout_metrics() -> dict:
+        """
+        Read checkout outcomes from the SQLite audit trail.
+
+        Checkout recovery is kept separate from payment recovery.
+        Synthetic customer returns are reported as simulated outcomes,
+        never as confirmed revenue.
+        """
+        metrics = {
+            "sessions": 0,
+            "value_observed": 0.0,
+            "completed": 0,
+            "reminders": 0,
+            "returned": 0,
+            "simulated_recovery_amount": 0.0,
+            "still_abandoned": 0,
+            "confirmed_revenue": 0.0,
+        }
+
+        db_path = Path(DATABASE_PATH)
+
+        if not db_path.exists():
+            return metrics
+
+        try:
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                cursor = connection.cursor()
+
+                cursor.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS sessions,
+                        COALESCE(SUM(amount), 0) AS value_observed,
+                        SUM(
+                            CASE
+                                WHEN decision = 'NO_ACTION'
+                                THEN 1 ELSE 0
+                            END
+                        ) AS completed,
+                        SUM(
+                            CASE
+                                WHEN decision =
+                                    'SEND_CHECKOUT_REMINDER'
+                                THEN 1 ELSE 0
+                            END
+                        ) AS reminders,
+                        SUM(
+                            CASE
+                                WHEN outcome =
+                                    'checkout_recovered'
+                                THEN 1 ELSE 0
+                            END
+                        ) AS returned,
+                        COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN outcome =
+                                        'checkout_recovered'
+                                    THEN amount ELSE 0
+                                END
+                            ),
+                            0
+                        ) AS simulated_recovery_amount,
+                        SUM(
+                            CASE
+                                WHEN outcome =
+                                    'still_abandoned'
+                                THEN 1 ELSE 0
+                            END
+                        ) AS still_abandoned,
+                        COALESCE(
+                            SUM(settlement_amount_paid),
+                            0
+                        ) AS confirmed_revenue
+                    FROM audit_logs
+                    WHERE record_type = 'checkout'
+                    """
+                )
+
+                row = cursor.fetchone()
+
+                if row:
+                    for key in metrics:
+                        value = row[key]
+                        if key in {
+                            "value_observed",
+                            "simulated_recovery_amount",
+                            "confirmed_revenue",
+                        }:
+                            metrics[key] = float(value or 0)
+                        else:
+                            metrics[key] = int(value or 0)
+
+        except (sqlite3.Error, OSError):
+            # Reporting should never break the recovery pipeline.
+            pass
+
+        return metrics
+
     # -----------------------------------------------------
     # Markdown report
     # -----------------------------------------------------
@@ -325,6 +432,8 @@ class RecoveryReporter:
                 results
             )
         )
+
+        checkout = self.checkout_metrics()
 
         breakdown = (
             self.failure_reason_breakdown(
@@ -443,7 +552,7 @@ class RecoveryReporter:
         lines.append("")
 
         # -------------------------------------------------
-        # Failure reason breakdown
+        # Checkout drop-off
         # -------------------------------------------------
 
         lines.append(
@@ -685,6 +794,68 @@ class RecoveryReporter:
 
         return "\n".join(lines)
 
+        lines.append(
+            "## 9. Checkout Drop-off Recovery"
+        )
+
+        lines.append("")
+
+        lines.append(
+            f"- **Checkout sessions observed:** "
+            f"{checkout['sessions']}"
+        )
+
+        lines.append(
+            f"- **Checkout value observed:** "
+            f"₹{checkout['value_observed']:,.2f}"
+        )
+
+        lines.append(
+            f"- **Already completed:** "
+            f"{checkout['completed']}"
+        )
+
+        lines.append(
+            f"- **Recovery reminders sent:** "
+            f"{checkout['reminders']}"
+        )
+
+        lines.append(
+            f"- **Customers returned:** "
+            f"{checkout['returned']}"
+        )
+
+        lines.append(
+            f"- **Simulated checkout recovery:** "
+            f"₹{checkout['simulated_recovery_amount']:,.2f}"
+        )
+
+        lines.append(
+            f"- **Still abandoned:** "
+            f"{checkout['still_abandoned']}"
+        )
+
+        lines.append(
+            f"- **Confirmed checkout revenue:** "
+            f"₹{checkout['confirmed_revenue']:,.2f}"
+        )
+
+        lines.append("")
+
+        lines.append(
+            "**Important:** Customer returns from the synthetic "
+            "checkout follow-up are demo outcomes. They are not "
+            "counted as confirmed revenue until a real financial "
+            "settlement is recorded."
+        )
+
+        lines.append("")
+
+        # -------------------------------------------------
+        # Failure reason breakdown
+        # -------------------------------------------------
+
+
     # -----------------------------------------------------
     # Save report
     # -----------------------------------------------------
@@ -772,6 +943,8 @@ class RecoveryReporter:
             self.exceptions(results)
         )
 
+        checkout = self.checkout_metrics()
+
         print()
         print("=" * 70)
         print("FINAL RECOVERY REPORT")
@@ -807,6 +980,31 @@ class RecoveryReporter:
         print(
             f"Honest exceptions: "
             f"{len(exceptions)}"
+        )
+
+        print(
+            f"Checkout sessions: "
+            f"{checkout['sessions']}"
+        )
+
+        print(
+            f"Checkout reminders: "
+            f"{checkout['reminders']}"
+        )
+
+        print(
+            f"Checkout customers returned: "
+            f"{checkout['returned']}"
+        )
+
+        print(
+            f"Simulated checkout recovery: "
+            f"₹{checkout['simulated_recovery_amount']:,.2f}"
+        )
+
+        print(
+            f"Still abandoned checkouts: "
+            f"{checkout['still_abandoned']}"
         )
 
         print("=" * 70)

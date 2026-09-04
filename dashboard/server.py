@@ -1,692 +1,597 @@
-from __future__ import annotations
-
 import json
 import sqlite3
-from collections import defaultdict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
 
-# ---------------------------------------------------------
-# Paths
-# ---------------------------------------------------------
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-DATABASE_PATH = (
-    PROJECT_ROOT
-    / "database"
-    / "audit.db"
-)
-
-DASHBOARD_FILE = (
-    PROJECT_ROOT
-    / "dashboard"
-    / "index.html"
-)
-
-
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
+DATABASE_PATH = PROJECT_ROOT / "database" / "audit.db"
+DASHBOARD_PATH = Path(__file__).resolve().parent / "index.html"
 
 HOST = "127.0.0.1"
 PORT = 5000
+API_CAP = 20
 
-MAX_REAL_API_CALLS = 20
-
-
-# ---------------------------------------------------------
-# Database helpers
-# ---------------------------------------------------------
 
 def get_connection():
-    """
-    Open the existing SQLite audit database.
-
-    The dashboard does not create a second database.
-    It reads the same database used by the recovery agent.
-    """
-
-    if not DATABASE_PATH.exists():
-        raise FileNotFoundError(
-            f"Audit database not found: {DATABASE_PATH}"
-        )
-
-    connection = sqlite3.connect(
-        DATABASE_PATH
-    )
-
+    connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
-
     return connection
 
 
-def get_table_columns(connection):
-    """
-    Return all columns currently available
-    in the audit_logs table.
-
-    This keeps the dashboard compatible with
-    the existing audit database schema.
-    """
-
-    rows = connection.execute(
-        "PRAGMA table_info(audit_logs)"
-    ).fetchall()
-
-    return {
-        row["name"]
-        for row in rows
-    }
-
-
-# ---------------------------------------------------------
-# Safe value helpers
-# ---------------------------------------------------------
-
 def safe_float(value):
-    try:
-        return float(value or 0)
-    except (
-        TypeError,
-        ValueError
-    ):
+    if value is None:
         return 0.0
+    return float(value)
 
-
-def is_real_recovery(row):
-    """
-    Determine whether an audit record represents
-    a genuine successful Razorpay API recovery.
-
-    We deliberately require BOTH:
-
-    1. recovered outcome
-    2. real API recovery marker
-
-    This prevents simulated recoveries from being
-    counted as real revenue recovery.
-    """
-
-    outcome = str(
-        row["outcome"] or ""
-    ).lower()
-
-    recovery_type = str(
-        row["recovery_type"] or ""
-    ).lower()
-
-    return (
-        outcome == "recovered"
-        and recovery_type == "real_api"
-    )
-
-
-def is_simulated_recovery(row):
-    """
-    Identify simulated recoveries.
-
-    These are reported separately and are never
-    blended into real recovery metrics.
-    """
-
-    outcome = str(
-        row["outcome"] or ""
-    ).lower()
-
-    recovery_type = str(
-        row["recovery_type"] or ""
-    ).lower()
-
-    return (
-        outcome == "recovered"
-        and recovery_type == "simulated"
-    )
-
-
-# ---------------------------------------------------------
-# Dashboard statistics
-# ---------------------------------------------------------
 
 def build_dashboard_data():
-    """
-    Read the current SQLite audit batch and produce
-    the JSON structure consumed by index.html.
-    """
+    with get_connection() as connection:
+        cursor = connection.cursor()
 
-    connection = get_connection()
+        # ---------------------------------------------------------
+        # Overall audit metrics
+        # ---------------------------------------------------------
 
-    try:
-
-        columns = get_table_columns(
-            connection
-        )
-
-        required_columns = {
-            "payment_id",
-            "failure_reason",
-            "amount",
-            "outcome",
-        }
-
-        missing = (
-            required_columns
-            - columns
-        )
-
-        if missing:
-            raise RuntimeError(
-                "audit_logs is missing columns: "
-                + ", ".join(
-                    sorted(missing)
-                )
-            )
-
-        rows = connection.execute(
+        cursor.execute(
             """
-            SELECT *
+            SELECT COUNT(*) AS total_records
             FROM audit_logs
-            ORDER BY timestamp ASC
             """
-        ).fetchall()
-
-    finally:
-
-        connection.close()
-
-
-    total_payments = len(rows)
-
-
-    # -----------------------------------------------------
-    # Amount at risk
-    # -----------------------------------------------------
-
-    total_amount_at_risk = sum(
-        safe_float(
-            row["amount"]
         )
-        for row in rows
-    )
+        total_audit_records = cursor.fetchone()["total_records"]
 
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS payment_records
+            FROM audit_logs
+            WHERE record_type = 'payment'
+            """
+        )
+        payment_records = cursor.fetchone()["payment_records"]
 
-    # -----------------------------------------------------
-    # Recovery metrics
-    # -----------------------------------------------------
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS checkout_records
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+            """
+        )
+        checkout_records = cursor.fetchone()["checkout_records"]
 
-    real_recovered_amount = 0.0
+        # ---------------------------------------------------------
+        # Payment metrics
+        # ---------------------------------------------------------
 
-    simulated_recovered_amount = 0.0
-
-    real_api_calls = 0
-
-    still_failed_amount = 0.0
-
-    escalated_count = 0
-
-
-    for row in rows:
-
-        amount = safe_float(
-            row["amount"]
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(SUM(amount), 0) AS amount_at_risk
+            FROM audit_logs
+            WHERE record_type = 'payment'
+            """
+        )
+        payment_amount_at_risk = safe_float(
+            cursor.fetchone()["amount_at_risk"]
         )
 
-        if is_real_recovery(row):
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(SUM(settlement_amount_paid), 0)
+                    AS confirmed_recovered,
+                COUNT(*) AS confirmed_count
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND settlement_confirmed = 1
+            """
+        )
+        payment_recovery = cursor.fetchone()
 
-            real_recovered_amount += amount
+        confirmed_payment_revenue = safe_float(
+            payment_recovery["confirmed_recovered"]
+        )
+        confirmed_payment_count = payment_recovery["confirmed_count"]
 
-        elif is_simulated_recovery(row):
+        # ---------------------------------------------------------
+        # Real API actions
+        # ---------------------------------------------------------
 
-            simulated_recovered_amount += amount
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS amount
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND real_api_call = 1
+              AND settlement_confirmed = 0
+            """
+        )
+        triggered = cursor.fetchone()
 
+        recovery_actions_triggered = triggered["count"]
+        recovery_actions_amount = safe_float(triggered["amount"])
 
-        outcome = str(
-            row["outcome"] or ""
-        ).lower()
+        # ---------------------------------------------------------
+        # Simulated actions
+        # ---------------------------------------------------------
 
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS amount
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND simulated = 1
+            """
+        )
+        simulated = cursor.fetchone()
 
-        if outcome == "escalated":
+        simulated_count = simulated["count"]
+        simulated_amount = safe_float(simulated["amount"])
 
-            escalated_count += 1
+        # ---------------------------------------------------------
+        # API usage
+        # ---------------------------------------------------------
 
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS api_calls
+            FROM audit_logs
+            WHERE real_api_call = 1
+            """
+        )
+        real_api_calls = cursor.fetchone()["api_calls"]
 
-        if outcome == "still_failed":
+        # ---------------------------------------------------------
+        # Payment outcomes
+        # ---------------------------------------------------------
 
-            still_failed_amount += amount
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND outcome = 'still_failed'
+            """
+        )
+        still_failed = cursor.fetchone()["count"]
 
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND outcome = 'escalated'
+            """
+        )
+        escalated = cursor.fetchone()["count"]
 
-        if (
-            "api_status_code" in columns
-            and row["api_status_code"] is not None
-        ):
+        # ---------------------------------------------------------
+        # Decision breakdown
+        # ---------------------------------------------------------
 
-            try:
+        cursor.execute(
+            """
+            SELECT
+                decision,
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS amount
+            FROM audit_logs
+            WHERE record_type = 'payment'
+            GROUP BY decision
+            ORDER BY count DESC
+            """
+        )
 
-                status_code = int(
-                    row["api_status_code"]
-                )
+        decisions = [
+            {
+                "decision": row["decision"],
+                "count": row["count"],
+                "amount": safe_float(row["amount"]),
+            }
+            for row in cursor.fetchall()
+        ]
 
-                if status_code == 200:
+        # ---------------------------------------------------------
+        # Failure reason breakdown
+        # ---------------------------------------------------------
 
-                    real_api_calls += 1
+        cursor.execute(
+            """
+            SELECT
+                failure_reason,
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS amount
+            FROM audit_logs
+            WHERE record_type = 'payment'
+            GROUP BY failure_reason
+            ORDER BY count DESC
+            """
+        )
 
-            except (
-                TypeError,
-                ValueError
-            ):
+        failure_reasons = [
+            {
+                "reason": row["failure_reason"],
+                "count": row["count"],
+                "amount": safe_float(row["amount"]),
+            }
+            for row in cursor.fetchall()
+        ]
 
-                pass
+        # ---------------------------------------------------------
+        # Checkout metrics
+        # ---------------------------------------------------------
 
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS value
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+            """
+        )
+        checkout_total = cursor.fetchone()
 
-    # -----------------------------------------------------
-    # Percentages
-    # -----------------------------------------------------
+        checkout_value = safe_float(checkout_total["value"])
 
-    if total_amount_at_risk > 0:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND decision = 'NO_ACTION'
+            """
+        )
+        checkout_completed = cursor.fetchone()["count"]
 
-        real_recovery_percentage = (
-            real_recovered_amount
-            / total_amount_at_risk
-        ) * 100
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND decision = 'SEND_CHECKOUT_REMINDER'
+            """
+        )
+        checkout_reminders = cursor.fetchone()["count"]
 
-        combined_recovery_percentage = (
-            (
-                real_recovered_amount
-                + simulated_recovered_amount
-            )
-            / total_amount_at_risk
-        ) * 100
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND decision = 'WAIT'
+            """
+        )
+        checkout_waiting = cursor.fetchone()["count"]
 
-    else:
+        # Checkout recovery is intentionally zero unless
+        # a future completion/settlement event is recorded.
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(SUM(settlement_amount_paid), 0) AS amount,
+                COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND settlement_confirmed = 1
+            """
+        )
+        checkout_recovery = cursor.fetchone()
 
-        real_recovery_percentage = 0.0
+        checkout_confirmed_revenue = safe_float(
+            checkout_recovery["amount"]
+        )
+        checkout_confirmed_count = checkout_recovery["count"]
 
-        combined_recovery_percentage = 0.0
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS count,
+                COALESCE(SUM(amount), 0) AS amount
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND outcome = 'checkout_recovered'
+            """
+        )
+        checkout_simulated = cursor.fetchone()
 
+        checkout_simulated_count = checkout_simulated["count"]
+        checkout_simulated_amount = safe_float(
+            checkout_simulated["amount"]
+        )
 
-    # -----------------------------------------------------
-    # Failure reason breakdown
-    # -----------------------------------------------------
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM audit_logs
+            WHERE record_type = 'checkout'
+              AND outcome = 'still_abandoned'
+            """
+        )
+        checkout_abandoned = cursor.fetchone()["count"]
 
-    breakdown = defaultdict(
-        lambda: {
-            "count": 0,
-            "recovered_amount": 0.0,
+        # ---------------------------------------------------------
+        # Exceptions
+        # ---------------------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT
+                timestamp,
+                payment_id,
+                customer_name,
+                amount,
+                failure_reason,
+                decision,
+                decision_reason,
+                action_taken,
+                outcome,
+                notes
+            FROM audit_logs
+            WHERE record_type = 'payment'
+              AND decision IN (
+                  'ESCALATE_HUMAN',
+                  'DO_NOT_RETRY'
+              )
+            ORDER BY id DESC
+            """
+        )
+
+        exceptions = [
+            dict(row)
+            for row in cursor.fetchall()
+        ]
+
+        # ---------------------------------------------------------
+        # Recent audit trail
+        # ---------------------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT
+                id,
+                timestamp,
+                record_type,
+                payment_id,
+                checkout_id,
+                customer_id,
+                customer_name,
+                amount,
+                currency,
+                failure_reason,
+                decision,
+                decision_reason,
+                action_taken,
+                outcome,
+                recovery_type,
+                real_api_call,
+                simulated,
+                settlement_confirmed,
+                settlement_amount_paid,
+                notes
+            FROM audit_logs
+            ORDER BY id DESC
+            LIMIT 100
+            """
+        )
+
+        audit_records = [
+            dict(row)
+            for row in cursor.fetchall()
+        ]
+
+        # ---------------------------------------------------------
+        # Combined metrics
+        # ---------------------------------------------------------
+
+        combined_amount_at_risk = (
+            payment_amount_at_risk + checkout_value
+        )
+
+        combined_confirmed_revenue = (
+            confirmed_payment_revenue
+            + checkout_confirmed_revenue
+        )
+
+        payment_recovery_rate = (
+            confirmed_payment_revenue
+            / payment_amount_at_risk
+            * 100
+            if payment_amount_at_risk > 0
+            else 0.0
+        )
+
+        combined_recovery_rate = (
+            combined_confirmed_revenue
+            / combined_amount_at_risk
+            * 100
+            if combined_amount_at_risk > 0
+            else 0.0
+        )
+
+        return {
+            "summary": {
+                "total_amount_at_risk": combined_amount_at_risk,
+                "payment_amount_at_risk": payment_amount_at_risk,
+                "checkout_value_observed": checkout_value,
+
+                "confirmed_recovered": combined_confirmed_revenue,
+                "confirmed_payment_revenue": confirmed_payment_revenue,
+                "confirmed_checkout_revenue": (
+                    checkout_confirmed_revenue
+                ),
+
+                "payment_recovery_rate": payment_recovery_rate,
+                "combined_recovery_rate": combined_recovery_rate,
+
+                "confirmed_payment_count": (
+                    confirmed_payment_count
+                ),
+                "confirmed_checkout_count": (
+                    checkout_confirmed_count
+                ),
+
+                "recovery_actions_triggered": (
+                    recovery_actions_triggered
+                ),
+                "recovery_actions_amount": (
+                    recovery_actions_amount
+                ),
+
+                "simulated_count": simulated_count,
+                "simulated_amount": simulated_amount,
+
+                "real_api_calls": real_api_calls,
+                "api_cap": API_CAP,
+
+                "payment_records": payment_records,
+                "checkout_records": checkout_records,
+                "total_audit_records": total_audit_records,
+
+                "still_failed": still_failed,
+                "escalated": escalated,
+            },
+
+            "checkout": {
+                "sessions": checkout_records,
+                "value_observed": checkout_value,
+                "completed": checkout_completed,
+                "reminders": checkout_reminders,
+                "waiting": checkout_waiting,
+                "returned": checkout_simulated_count,
+                "simulated_recovery_amount": checkout_simulated_amount,
+                "still_abandoned": checkout_abandoned,
+                "confirmed_revenue": checkout_confirmed_revenue,
+            },
+
+            "decisions": decisions,
+            "failure_reasons": failure_reasons,
+            "exceptions": exceptions,
+            "audit_records": audit_records,
         }
-    )
 
 
-    for row in rows:
+class DashboardHandler(BaseHTTPRequestHandler):
 
-        reason = str(
-            row["failure_reason"]
-        )
-
-        breakdown[reason][
-            "count"
-        ] += 1
-
-
-        if is_real_recovery(row):
-
-            breakdown[reason][
-                "recovered_amount"
-            ] += safe_float(
-                row["amount"]
-            )
-
-
-    failure_breakdown = []
-
-
-    for reason, values in sorted(
-        breakdown.items()
-    ):
-
-        failure_breakdown.append(
-            {
-                "failure_reason": reason,
-                "count": values["count"],
-                "recovered_amount": round(
-                    values["recovered_amount"],
-                    2
-                ),
-            }
-        )
-
-
-    # -----------------------------------------------------
-    # Honest exceptions
-    # -----------------------------------------------------
-
-    exceptions = []
-
-
-    for row in rows:
-
-        outcome = str(
-            row["outcome"] or ""
-        ).lower()
-
-
-        if outcome not in {
-            "escalated",
-            "still_failed",
-        }:
-
-            continue
-
-
-        decision = ""
-
-        if "decision" in columns:
-
-            decision = str(
-                row["decision"] or ""
-            )
-
-
-        reason = str(
-            row["failure_reason"]
-        )
-
-
-        if decision:
-
-            exception_reason = (
-                f"{reason} — "
-                f"{decision}"
-            )
-
-        else:
-
-            exception_reason = reason
-
-
-        exceptions.append(
-            {
-                "payment_id": str(
-                    row["payment_id"]
-                ),
-                "reason": exception_reason,
-            }
-        )
-
-
-    # -----------------------------------------------------
-    # Final dashboard payload
-    # -----------------------------------------------------
-
-    return {
-        "total_amount_at_risk": round(
-            total_amount_at_risk,
-            2
-        ),
-
-        "real_recovered_amount": round(
-            real_recovered_amount,
-            2
-        ),
-
-        "simulated_recovered_amount": round(
-            simulated_recovered_amount,
-            2
-        ),
-
-        "real_recovery_percentage": round(
-            real_recovery_percentage,
-            2
-        ),
-
-        "combined_recovery_percentage": round(
-            combined_recovery_percentage,
-            2
-        ),
-
-        "total_payments": total_payments,
-
-        "real_api_calls": real_api_calls,
-
-        "max_real_api_calls":
-            MAX_REAL_API_CALLS,
-
-        "still_failed_amount": round(
-            still_failed_amount,
-            2
-        ),
-
-        "escalated_count": escalated_count,
-
-        "audit_records": total_payments,
-
-        "failure_breakdown":
-            failure_breakdown,
-
-        "exceptions":
-            exceptions,
-
-    }
-
-
-# ---------------------------------------------------------
-# HTTP server
-# ---------------------------------------------------------
-
-class DashboardHandler(
-    BaseHTTPRequestHandler
-):
-
-    def send_json(
-        self,
-        data,
-        status=200
-    ):
-
-        body = json.dumps(
+    def send_json(self, data, status=200):
+        payload = json.dumps(
             data,
-            indent=2
-        ).encode(
-            "utf-8"
-        )
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
 
-        self.send_response(
-            status
-        )
-
+        self.send_response(status)
         self.send_header(
             "Content-Type",
-            "application/json"
+            "application/json; charset=utf-8",
         )
-
         self.send_header(
             "Content-Length",
-            str(len(body))
+            str(len(payload)),
         )
-
         self.send_header(
             "Cache-Control",
-            "no-store"
+            "no-store",
         )
-
         self.end_headers()
 
-        self.wfile.write(
-            body
-        )
+        self.wfile.write(payload)
 
+    def send_html(self, content, status=200):
+        payload = content.encode("utf-8")
+
+        self.send_response(status)
+        self.send_header(
+            "Content-Type",
+            "text/html; charset=utf-8",
+        )
+        self.send_header(
+            "Content-Length",
+            str(len(payload)),
+        )
+        self.end_headers()
+
+        self.wfile.write(payload)
 
     def do_GET(self):
+        parsed = urlparse(self.path)
 
-        parsed_url = urlparse(
-            self.path
-        )
-
-        path = parsed_url.path
-
-
-        # ---------------------------------------------
-        # Dashboard API
-        # ---------------------------------------------
-
-        if path == "/api/dashboard":
-
+        if parsed.path == "/":
             try:
+                html = DASHBOARD_PATH.read_text(
+                    encoding="utf-8"
+                )
+                self.send_html(html)
+            except Exception as exc:
+                self.send_json(
+                    {"error": str(exc)},
+                    status=500,
+                )
+            return
 
+        if parsed.path == "/api/dashboard":
+            try:
                 data = build_dashboard_data()
-
+                self.send_json(data)
+            except Exception as exc:
                 self.send_json(
-                    data
+                    {"error": str(exc)},
+                    status=500,
                 )
-
-            except Exception as error:
-
-                self.send_json(
-                    {
-                        "error": str(
-                            error
-                        )
-                    },
-                    status=500
-                )
-
             return
-
-
-        # ---------------------------------------------
-        # Dashboard HTML
-        # ---------------------------------------------
-
-        if path in {
-            "/",
-            "/index.html",
-        }:
-
-            try:
-
-                html = DASHBOARD_FILE.read_bytes()
-
-            except FileNotFoundError:
-
-                self.send_json(
-                    {
-                        "error":
-                            "dashboard/index.html "
-                            "not found"
-                    },
-                    status=404
-                )
-
-                return
-
-
-            self.send_response(
-                200
-            )
-
-            self.send_header(
-                "Content-Type",
-                "text/html; charset=utf-8"
-            )
-
-            self.send_header(
-                "Content-Length",
-                str(len(html))
-            )
-
-            self.end_headers()
-
-            self.wfile.write(
-                html
-            )
-
-            return
-
-
-        # ---------------------------------------------
-        # Not found
-        # ---------------------------------------------
 
         self.send_json(
-            {
-                "error": "Not found"
-            },
-            status=404
+            {"error": "Not found"},
+            status=404,
         )
 
+    def log_message(self, format, *args):
+        # Keep dashboard terminal output clean.
+        return
 
-    def log_message(
-        self,
-        format,
-        *args
-    ):
-
-        print(
-            "[Dashboard]",
-            format % args
-        )
-
-
-# ---------------------------------------------------------
-# Start server
-# ---------------------------------------------------------
 
 def main():
+    if not DATABASE_PATH.exists():
+        print(
+            f"Audit database not found: {DATABASE_PATH}"
+        )
+        print(
+            "Run 'python run.py' first."
+        )
+        return
 
-    print("=" * 60)
-
-    print(
-        "FAILED PAYMENT RECOVERY DASHBOARD"
+    server = HTTPServer(
+        (HOST, PORT),
+        DashboardHandler,
     )
 
-    print("=" * 60)
-
+    print("=" * 70)
+    print("FAILED PAYMENT RECOVERY DASHBOARD")
+    print("=" * 70)
     print(
-        f"Database: {DATABASE_PATH}"
+        f"Dashboard: http://{HOST}:{PORT}"
     )
-
     print(
-        f"Dashboard: {DASHBOARD_FILE}"
+        f"Database:  {DATABASE_PATH}"
     )
-
-    print(
-        f"URL: http://{HOST}:{PORT}"
-    )
-
     print()
-
-    print(
-        "Press CTRL+C to stop the server."
-    )
-
-    print("=" * 60)
-
-
-    server = ThreadingHTTPServer(
-        (
-            HOST,
-            PORT
-        ),
-        DashboardHandler
-    )
-
+    print("Press Ctrl+C to stop.")
+    print("=" * 70)
 
     try:
-
         server.serve_forever()
-
     except KeyboardInterrupt:
-
-        print(
-            "\nDashboard server stopped."
-        )
-
+        print("\nDashboard stopped.")
     finally:
-
         server.server_close()
 
 
 if __name__ == "__main__":
-
     main()

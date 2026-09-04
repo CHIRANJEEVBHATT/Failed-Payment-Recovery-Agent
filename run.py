@@ -6,7 +6,10 @@ from app.config import (
     DATA_DIR,
     MAX_REAL_API_CALLS,
 )
-from app.models import FailedPayment
+from app.models import (
+    CheckoutSession,
+    FailedPayment,
+)
 from app.processor import PaymentProcessor
 from app.reporter import RecoveryReporter
 
@@ -133,11 +136,71 @@ def validate_dataset(
             )
 
 
+def load_generated_checkouts() -> list[CheckoutSession]:
+    """
+    Generate synthetic checkout drop-off sessions.
+
+    Checkout data is generated in memory for the current
+    demonstration run.
+    """
+
+    from app.generator import generate_checkout_dropoffs
+
+    return generate_checkout_dropoffs(
+        count=20
+    )
+
+
+def validate_checkout_dataset(
+    sessions: list[CheckoutSession],
+) -> None:
+    """
+    Validate checkout sessions before processing.
+    """
+
+    if not sessions:
+        raise ValueError(
+            "The checkout dataset is empty."
+        )
+
+    checkout_ids = set()
+
+    for session in sessions:
+
+        if session.checkout_id in checkout_ids:
+            raise ValueError(
+                "Duplicate checkout_id detected: "
+                f"{session.checkout_id}"
+            )
+
+        checkout_ids.add(
+            session.checkout_id
+        )
+
+        if session.amount <= 0:
+            raise ValueError(
+                f"Invalid checkout amount for "
+                f"{session.checkout_id}"
+            )
+
+        if not session.customer_id:
+            raise ValueError(
+                f"Missing customer_id for "
+                f"{session.checkout_id}"
+            )
+
+        if not session.currency:
+            raise ValueError(
+                f"Missing currency for "
+                f"{session.checkout_id}"
+            )
+
+
 def print_batch_information(
     payments: list[FailedPayment],
 ) -> None:
     """
-    Print information about the current batch.
+    Print information about the current payment batch.
     """
 
     total_amount = sum(
@@ -213,9 +276,60 @@ def verify_audit_coverage(
         )
 
     print(
-        f"Audit coverage verified: "
+        f"Payment audit coverage verified: "
         f"{len(audit_records)}/"
         f"{len(payments)}"
+    )
+
+
+def verify_checkout_audit_coverage(
+    audit_logger: AuditLogger,
+    sessions: list[CheckoutSession],
+) -> None:
+    """
+    Verify that every checkout session has exactly
+    one checkout audit record.
+    """
+
+    checkout_ids = {
+        session.checkout_id
+        for session in sessions
+    }
+
+    all_logs = audit_logger.get_all_logs()
+
+    checkout_records = [
+        record
+        for record in all_logs
+        if record.get("record_type") == "checkout"
+    ]
+
+    if len(checkout_records) != len(
+        sessions
+    ):
+        raise RuntimeError(
+            "CHECKOUT AUDIT COVERAGE FAILURE: "
+            f"expected {len(sessions)} checkout audit "
+            f"records but found "
+            f"{len(checkout_records)}."
+        )
+
+    audit_checkout_ids = {
+        record["checkout_id"]
+        for record in checkout_records
+    }
+
+    if audit_checkout_ids != checkout_ids:
+        raise RuntimeError(
+            "CHECKOUT AUDIT COVERAGE FAILURE: "
+            "audit records do not match the "
+            "current checkout batch."
+        )
+
+    print(
+        f"Checkout audit coverage verified: "
+        f"{len(checkout_records)}/"
+        f"{len(sessions)}"
     )
 
 
@@ -237,9 +351,87 @@ def verify_api_cap(
         )
 
 
+def print_checkout_summary(
+    sessions: list[CheckoutSession],
+    checkout_results: list[dict],
+) -> None:
+    """
+    Print a summary of checkout drop-off recovery.
+    """
+
+    total_checkout_value = sum(
+        session.amount
+        for session in sessions
+    )
+
+    abandoned = [
+        result
+        for result in checkout_results
+        if result["decision"]
+        == "SEND_CHECKOUT_REMINDER"
+    ]
+
+    completed = [
+        result
+        for result in checkout_results
+        if result["decision"]
+        == "NO_ACTION"
+    ]
+
+    waiting = [
+        result
+        for result in checkout_results
+        if result["decision"]
+        == "WAIT"
+    ]
+
+    print()
+    print("=" * 70)
+    print("CHECKOUT DROP-OFF SUMMARY")
+    print("=" * 70)
+
+    print(
+        f"Checkout sessions: "
+        f"{len(sessions)}"
+    )
+
+    print(
+        f"Checkout value observed: "
+        f"₹{total_checkout_value:,.2f}"
+    )
+
+    print(
+        f"Completed: "
+        f"{len(completed)}"
+    )
+
+    print(
+        f"Recovery reminders selected: "
+        f"{len(abandoned)}"
+    )
+
+    print(
+        f"Too recent / waiting: "
+        f"{len(waiting)}"
+    )
+
+    print(
+        "Confirmed checkout revenue recovered: "
+        "₹0.00"
+    )
+
+    print(
+        "Note: A reminder is a recovery attempt, "
+        "not confirmed recovered revenue."
+    )
+
+    print("=" * 70)
+
+
 def main():
     """
-    Run the complete Failed Payment Recovery Agent.
+    Run the complete Failed Payment Recovery Agent
+    with checkout drop-off recovery.
     """
 
     print()
@@ -279,7 +471,19 @@ def main():
     )
 
     print(
-        "Dataset validation passed."
+        "Payment dataset validation passed."
+    )
+
+    checkout_sessions = (
+        load_generated_checkouts()
+    )
+
+    validate_checkout_dataset(
+        checkout_sessions
+    )
+
+    print(
+        "Checkout dataset validation passed."
     )
 
     # -----------------------------------------------------
@@ -330,6 +534,12 @@ def main():
         payments
     )
 
+    checkout_results = (
+        processor.process_checkout_batch(
+            checkout_sessions
+        )
+    )
+
     # -----------------------------------------------------
     # Safety verification
     # -----------------------------------------------------
@@ -350,6 +560,20 @@ def main():
     verify_audit_coverage(
         audit_logger=audit_logger,
         payments=payments,
+    )
+
+    verify_checkout_audit_coverage(
+        audit_logger=audit_logger,
+        sessions=checkout_sessions,
+    )
+
+    # -----------------------------------------------------
+    # Checkout summary
+    # -----------------------------------------------------
+
+    print_checkout_summary(
+        sessions=checkout_sessions,
+        checkout_results=checkout_results,
     )
 
     # -----------------------------------------------------
@@ -385,6 +609,11 @@ def main():
     print(
         f"Payments processed: "
         f"{len(payments)}"
+    )
+
+    print(
+        f"Checkout sessions processed: "
+        f"{len(checkout_sessions)}"
     )
 
     print(

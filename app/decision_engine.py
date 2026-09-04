@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
-
 from app.models import FailedPayment
 
 
@@ -88,7 +87,34 @@ def retry_is_within_cooldown(
 # ---------------------------------------------------------
 # Main decision engine
 # ---------------------------------------------------------
+def decide_checkout_recovery(session):
+    """
+    Decide whether an abandoned checkout should receive
+    a recovery reminder.
+    """
 
+    if session.completed:
+        return {
+            "action": "NO_ACTION",
+            "reason": "CHECKOUT_COMPLETED",
+        }
+
+    age_minutes = (
+        datetime.now() - session.started_at
+    ).total_seconds() / 60
+
+    # Ignore extremely recent checkouts.
+    if age_minutes < 30:
+        return {
+            "action": "WAIT",
+            "reason": "CHECKOUT_TOO_RECENT",
+        }
+
+    # Recovery reminder for abandoned checkout.
+    return {
+        "action": "SEND_CHECKOUT_REMINDER",
+        "reason": "CHECKOUT_DROPPED_OFF",
+    }
 def decide(
     payment: FailedPayment,
 ) -> RecoveryDecision:
