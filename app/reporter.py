@@ -377,6 +377,66 @@ class RecoveryReporter:
 
         return metrics
 
+
+    @staticmethod
+    def b2b_metrics() -> dict:
+        """Read B2B receivable outcomes from the SQLite audit trail."""
+        metrics = {"invoices":0,"outstanding_value":0.0,"reminders":0,"stronger_reminders":0,"account_escalations":0,"human_escalations":0,"already_paid":0,"waiting":0,"confirmed_revenue":0.0}
+        db_path = Path(DATABASE_PATH)
+        if not db_path.exists(): return metrics
+        try:
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute("""SELECT COUNT(*) invoices, COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_status,'overdue')) != 'paid' THEN amount ELSE 0 END),0) outstanding_value, SUM(CASE WHEN decision='SEND_REMINDER' THEN 1 ELSE 0 END) reminders, SUM(CASE WHEN decision='SEND_STRONGER_REMINDER' THEN 1 ELSE 0 END) stronger_reminders, SUM(CASE WHEN decision='ESCALATE_ACCOUNT' THEN 1 ELSE 0 END) account_escalations, SUM(CASE WHEN decision='ESCALATE_HUMAN' THEN 1 ELSE 0 END) human_escalations, SUM(CASE WHEN decision='NO_ACTION' AND outcome='already_paid' THEN 1 ELSE 0 END) already_paid, SUM(CASE WHEN decision='WAIT' THEN 1 ELSE 0 END) waiting, COALESCE(SUM(CASE WHEN settlement_confirmed=1 THEN settlement_amount_paid ELSE 0 END),0) confirmed_revenue FROM audit_logs WHERE record_type='b2b'""").fetchone()
+                if row:
+                    for key in metrics:
+                        metrics[key] = float(row[key] or 0) if key in {"outstanding_value","confirmed_revenue"} else int(row[key] or 0)
+        except (sqlite3.Error,OSError): pass
+        return metrics
+
+    @staticmethod
+    def promise_to_pay_metrics() -> dict:
+        """Read Promise-to-Pay outcomes from the SQLite audit trail."""
+        metrics = {
+            "promises": 0,
+            "amount_at_risk": 0.0,
+            "payment_reminders": 0,
+            "stronger_reminders": 0,
+            "account_escalations": 0,
+            "human_escalations": 0,
+            "waiting": 0,
+            "already_paid": 0,
+            "outstanding_amount": 0.0,
+            "confirmed_revenue": 0.0,
+        }
+        db_path = Path(DATABASE_PATH)
+        if not db_path.exists():
+            return metrics
+        try:
+            with sqlite3.connect(db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute("""
+                    SELECT
+                        COUNT(*) AS promises,
+                        COALESCE(SUM(CASE WHEN LOWER(COALESCE(promise_status, 'promised')) != 'paid' THEN amount ELSE 0 END), 0) AS amount_at_risk,
+                        SUM(CASE WHEN decision='SEND_PAYMENT_REMINDER' THEN 1 ELSE 0 END) AS payment_reminders,
+                        SUM(CASE WHEN decision='SEND_STRONGER_REMINDER' THEN 1 ELSE 0 END) AS stronger_reminders,
+                        SUM(CASE WHEN decision='ESCALATE_ACCOUNT' THEN 1 ELSE 0 END) AS account_escalations,
+                        SUM(CASE WHEN decision='ESCALATE_HUMAN' THEN 1 ELSE 0 END) AS human_escalations,
+                        SUM(CASE WHEN decision='WAIT' THEN 1 ELSE 0 END) AS waiting,
+                        SUM(CASE WHEN decision='NO_ACTION' AND outcome='already_paid' THEN 1 ELSE 0 END) AS already_paid,
+                        COALESCE(SUM(CASE WHEN outcome='still_outstanding' THEN amount ELSE 0 END), 0) AS outstanding_amount,
+                        COALESCE(SUM(CASE WHEN settlement_confirmed=1 THEN settlement_amount_paid ELSE 0 END), 0) AS confirmed_revenue
+                    FROM audit_logs
+                    WHERE record_type='promise_to_pay'
+                """).fetchone()
+                if row:
+                    for key in metrics:
+                        metrics[key] = float(row[key] or 0) if key in {"amount_at_risk", "outstanding_amount", "confirmed_revenue"} else int(row[key] or 0)
+        except (sqlite3.Error, OSError):
+            pass
+        return metrics
+
     # -----------------------------------------------------
     # Markdown report
     # -----------------------------------------------------
@@ -792,69 +852,58 @@ class RecoveryReporter:
 
         lines.append("")
 
+        # -------------------------------------------------
+        # Checkout drop-off recovery
+        # -------------------------------------------------
+
+        lines.append("## 9. Checkout Drop-off Recovery")
+        lines.append("")
+        lines.append(f"- **Checkout sessions observed:** {checkout['sessions']}")
+        lines.append(f"- **Checkout value observed:** ₹{checkout['value_observed']:,.2f}")
+        lines.append(f"- **Already completed:** {checkout['completed']}")
+        lines.append(f"- **Recovery reminders sent:** {checkout['reminders']}")
+        lines.append(f"- **Customers returned:** {checkout['returned']}")
+        lines.append(f"- **Simulated checkout recovery:** ₹{checkout['simulated_recovery_amount']:,.2f}")
+        lines.append(f"- **Still abandoned:** {checkout['still_abandoned']}")
+        lines.append(f"- **Confirmed checkout revenue:** ₹{checkout['confirmed_revenue']:,.2f}")
+        lines.append("")
+        lines.append("**Important:** Customer returns from the synthetic checkout follow-up are demo outcomes. They are not counted as confirmed revenue until a real financial settlement is recorded.")
+        lines.append("")
+
+        b2b = self.b2b_metrics()
+        lines.append("## 10. B2B Receivables Recovery")
+        lines.append("")
+        lines.append(f"- **B2B invoices observed:** {b2b['invoices']}")
+        lines.append(f"- **Outstanding value observed:** ₹{b2b['outstanding_value']:,.2f}")
+        lines.append(f"- **Standard reminders sent:** {b2b['reminders']}")
+        lines.append(f"- **Stronger reminders sent:** {b2b['stronger_reminders']}")
+        lines.append(f"- **Account escalations:** {b2b['account_escalations']}")
+        lines.append(f"- **Human escalations:** {b2b['human_escalations']}")
+        lines.append(f"- **Already paid:** {b2b['already_paid']}")
+        lines.append(f"- **Waiting:** {b2b['waiting']}")
+        lines.append(f"- **Confirmed B2B revenue:** ₹{b2b['confirmed_revenue']:,.2f}")
+        lines.append("")
+        lines.append("**Important:** B2B reminders and escalations are recovery actions, not confirmed recovered revenue. Revenue is counted only when a financial settlement is explicitly recorded.")
+        lines.append("")
+
+        ptp = self.promise_to_pay_metrics()
+        lines.append("## 11. Promise-to-Pay Recovery")
+        lines.append("")
+        lines.append(f"- **Promises observed:** {ptp['promises']}")
+        lines.append(f"- **Promise amount at risk:** ₹{ptp['amount_at_risk']:,.2f}")
+        lines.append(f"- **Payment reminders sent:** {ptp['payment_reminders']}")
+        lines.append(f"- **Stronger reminders sent:** {ptp['stronger_reminders']}")
+        lines.append(f"- **Account escalations:** {ptp['account_escalations']}")
+        lines.append(f"- **Human escalations:** {ptp['human_escalations']}")
+        lines.append(f"- **Waiting:** {ptp['waiting']}")
+        lines.append(f"- **Already paid:** {ptp['already_paid']}")
+        lines.append(f"- **Still outstanding:** ₹{ptp['outstanding_amount']:,.2f}")
+        lines.append(f"- **Confirmed Promise-to-Pay revenue:** ₹{ptp['confirmed_revenue']:,.2f}")
+        lines.append("")
+        lines.append("**Important:** A promise to pay is not a payment. Reminders and escalations are recovery actions only; revenue is confirmed only when a financial settlement is recorded.")
+        lines.append("")
+
         return "\n".join(lines)
-
-        lines.append(
-            "## 9. Checkout Drop-off Recovery"
-        )
-
-        lines.append("")
-
-        lines.append(
-            f"- **Checkout sessions observed:** "
-            f"{checkout['sessions']}"
-        )
-
-        lines.append(
-            f"- **Checkout value observed:** "
-            f"₹{checkout['value_observed']:,.2f}"
-        )
-
-        lines.append(
-            f"- **Already completed:** "
-            f"{checkout['completed']}"
-        )
-
-        lines.append(
-            f"- **Recovery reminders sent:** "
-            f"{checkout['reminders']}"
-        )
-
-        lines.append(
-            f"- **Customers returned:** "
-            f"{checkout['returned']}"
-        )
-
-        lines.append(
-            f"- **Simulated checkout recovery:** "
-            f"₹{checkout['simulated_recovery_amount']:,.2f}"
-        )
-
-        lines.append(
-            f"- **Still abandoned:** "
-            f"{checkout['still_abandoned']}"
-        )
-
-        lines.append(
-            f"- **Confirmed checkout revenue:** "
-            f"₹{checkout['confirmed_revenue']:,.2f}"
-        )
-
-        lines.append("")
-
-        lines.append(
-            "**Important:** Customer returns from the synthetic "
-            "checkout follow-up are demo outcomes. They are not "
-            "counted as confirmed revenue until a real financial "
-            "settlement is recorded."
-        )
-
-        lines.append("")
-
-        # -------------------------------------------------
-        # Failure reason breakdown
-        # -------------------------------------------------
-
 
     # -----------------------------------------------------
     # Save report
@@ -944,6 +993,8 @@ class RecoveryReporter:
         )
 
         checkout = self.checkout_metrics()
+        b2b = self.b2b_metrics()
+        ptp = self.promise_to_pay_metrics()
 
         print()
         print("=" * 70)
@@ -1006,6 +1057,22 @@ class RecoveryReporter:
             f"Still abandoned checkouts: "
             f"{checkout['still_abandoned']}"
         )
+
+        print(f"B2B invoices: {b2b['invoices']}")
+        print(f"B2B outstanding value: ₹{b2b['outstanding_value']:,.2f}")
+        print(f"B2B reminders: {b2b['reminders']}")
+        print(f"B2B stronger reminders: {b2b['stronger_reminders']}")
+        print(f"B2B account escalations: {b2b['account_escalations']}")
+        print(f"B2B human escalations: {b2b['human_escalations']}")
+        print(f"Confirmed B2B revenue: ₹{b2b['confirmed_revenue']:,.2f}")
+        print(f"Promise-to-Pay records: {ptp['promises']}")
+        print(f"Promise-to-Pay amount at risk: ₹{ptp['amount_at_risk']:,.2f}")
+        print(f"PTP payment reminders: {ptp['payment_reminders']}")
+        print(f"PTP stronger reminders: {ptp['stronger_reminders']}")
+        print(f"PTP account escalations: {ptp['account_escalations']}")
+        print(f"PTP human escalations: {ptp['human_escalations']}")
+        print(f"PTP still outstanding: ₹{ptp['outstanding_amount']:,.2f}")
+        print(f"Confirmed PTP revenue: ₹{ptp['confirmed_revenue']:,.2f}")
 
         print("=" * 70)
 

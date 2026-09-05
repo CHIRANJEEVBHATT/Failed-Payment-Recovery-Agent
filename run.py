@@ -7,8 +7,10 @@ from app.config import (
     MAX_REAL_API_CALLS,
 )
 from app.models import (
+    B2BReceivable,
     CheckoutSession,
     FailedPayment,
+    PromiseToPay,
 )
 from app.processor import PaymentProcessor
 from app.reporter import RecoveryReporter
@@ -135,6 +137,160 @@ def validate_dataset(
                 f"{payment.payment_id}"
             )
 
+
+
+def load_generated_b2b() -> list[B2BReceivable]:
+    """Generate the current synthetic B2B receivables batch."""
+    from app.generator import generate_b2b_receivables
+    return generate_b2b_receivables(count=20)
+
+
+def validate_b2b_dataset(receivables: list[B2BReceivable]) -> None:
+    """Validate B2B receivables before processing."""
+    if not receivables:
+        raise ValueError("The B2B receivables dataset is empty.")
+    invoice_ids = set()
+    for receivable in receivables:
+        if receivable.invoice_id in invoice_ids:
+            raise ValueError(f"Duplicate invoice_id detected: {receivable.invoice_id}")
+        invoice_ids.add(receivable.invoice_id)
+        if not receivable.company_name:
+            raise ValueError(f"Missing company_name for {receivable.invoice_id}")
+        if not receivable.customer_id:
+            raise ValueError(f"Missing customer_id for {receivable.invoice_id}")
+        if receivable.amount <= 0:
+            raise ValueError(f"Invalid B2B amount for {receivable.invoice_id}")
+        if not receivable.currency:
+            raise ValueError(f"Missing currency for {receivable.invoice_id}")
+        if receivable.days_overdue < 0:
+            raise ValueError(f"Invalid days_overdue for {receivable.invoice_id}")
+
+
+def verify_b2b_audit_coverage(audit_logger: AuditLogger, receivables: list[B2BReceivable]) -> None:
+    """Verify that every B2B invoice has exactly one audit record."""
+    invoice_ids = {r.invoice_id for r in receivables}
+    b2b_records = [r for r in audit_logger.get_all_logs() if r.get("record_type") == "b2b"]
+    if len(b2b_records) != len(receivables):
+        raise RuntimeError(f"B2B AUDIT COVERAGE FAILURE: expected {len(receivables)} B2B audit records but found {len(b2b_records)}.")
+    if {r["invoice_id"] for r in b2b_records} != invoice_ids:
+        raise RuntimeError("B2B AUDIT COVERAGE FAILURE: audit records do not match the current batch.")
+    print(f"B2B audit coverage verified: {len(b2b_records)}/{len(receivables)}")
+
+
+def print_b2b_summary(receivables: list[B2BReceivable], b2b_results: list[dict]) -> None:
+    """Print a summary of B2B recovery actions."""
+    total = sum(r.amount for r in receivables if r.payment_status.lower() != "paid")
+    counts = {
+        "SEND_REMINDER": sum(x["decision"] == "SEND_REMINDER" for x in b2b_results),
+        "SEND_STRONGER_REMINDER": sum(x["decision"] == "SEND_STRONGER_REMINDER" for x in b2b_results),
+        "ESCALATE_ACCOUNT": sum(x["decision"] == "ESCALATE_ACCOUNT" for x in b2b_results),
+        "ESCALATE_HUMAN": sum(x["decision"] == "ESCALATE_HUMAN" for x in b2b_results),
+        "NO_ACTION": sum(x["decision"] == "NO_ACTION" for x in b2b_results),
+        "WAIT": sum(x["decision"] == "WAIT" for x in b2b_results),
+    }
+    print(); print("=" * 70); print("B2B RECEIVABLES SUMMARY"); print("=" * 70)
+    print(f"B2B invoices: {len(receivables)}")
+    print(f"Outstanding value observed: ₹{total:,.2f}")
+    print(f"Standard reminders: {counts['SEND_REMINDER']}")
+    print(f"Stronger reminders: {counts['SEND_STRONGER_REMINDER']}")
+    print(f"Account escalations: {counts['ESCALATE_ACCOUNT']}")
+    print(f"Human escalations: {counts['ESCALATE_HUMAN']}")
+    print(f"Already paid / no action: {counts['NO_ACTION']}")
+    print(f"Waiting: {counts['WAIT']}")
+    print("Confirmed B2B revenue recovered: ₹0.00")
+    print("Note: reminders and escalations are recovery actions, not confirmed money recovered.")
+    print("=" * 70)
+
+
+
+def load_generated_promises() -> list[PromiseToPay]:
+    """Generate the current synthetic Promise-to-Pay batch."""
+    from app.generator import generate_promise_to_pay
+    return generate_promise_to_pay(count=20)
+
+
+def validate_promise_to_pay_dataset(promises: list[PromiseToPay]) -> None:
+    """Validate Promise-to-Pay records before processing."""
+    if not promises:
+        raise ValueError("The Promise-to-Pay dataset is empty.")
+
+    promise_ids = set()
+    for promise in promises:
+        if promise.promise_id in promise_ids:
+            raise ValueError(f"Duplicate promise_id detected: {promise.promise_id}")
+        promise_ids.add(promise.promise_id)
+        if not promise.customer_id:
+            raise ValueError(f"Missing customer_id for {promise.promise_id}")
+        if not promise.customer_name:
+            raise ValueError(f"Missing customer_name for {promise.promise_id}")
+        if promise.amount <= 0:
+            raise ValueError(f"Invalid Promise-to-Pay amount for {promise.promise_id}")
+        if not promise.currency:
+            raise ValueError(f"Missing currency for {promise.promise_id}")
+        if not promise.promised_date:
+            raise ValueError(f"Missing promised_date for {promise.promise_id}")
+        if not promise.created_at:
+            raise ValueError(f"Missing created_at for {promise.promise_id}")
+
+
+def verify_promise_to_pay_audit_coverage(
+    audit_logger: AuditLogger,
+    promises: list[PromiseToPay],
+) -> None:
+    """Verify that every Promise-to-Pay record has exactly one audit record."""
+    promise_ids = {p.promise_id for p in promises}
+    all_logs = audit_logger.get_all_logs()
+    records = [r for r in all_logs if r.get("record_type") == "promise_to_pay"]
+
+    if len(records) != len(promises):
+        raise RuntimeError(
+            "PTP AUDIT COVERAGE FAILURE: "
+            f"expected {len(promises)} Promise-to-Pay audit records "
+            f"but found {len(records)}."
+        )
+
+    audit_ids = {r.get("promise_id") for r in records}
+    if audit_ids != promise_ids:
+        raise RuntimeError(
+            "PTP AUDIT COVERAGE FAILURE: audit records do not match "
+            "the current Promise-to-Pay batch."
+        )
+
+    print(f"Promise-to-Pay audit coverage verified: {len(records)}/{len(promises)}")
+
+
+def print_promise_to_pay_summary(
+    promises: list[PromiseToPay],
+    results: list[dict],
+) -> None:
+    """Print a summary of Promise-to-Pay recovery actions."""
+    counts = {
+        "SEND_PAYMENT_REMINDER": sum(x["decision"] == "SEND_PAYMENT_REMINDER" for x in results),
+        "SEND_STRONGER_REMINDER": sum(x["decision"] == "SEND_STRONGER_REMINDER" for x in results),
+        "ESCALATE_ACCOUNT": sum(x["decision"] == "ESCALATE_ACCOUNT" for x in results),
+        "ESCALATE_HUMAN": sum(x["decision"] == "ESCALATE_HUMAN" for x in results),
+        "WAIT": sum(x["decision"] == "WAIT" for x in results),
+        "NO_ACTION": sum(x["decision"] == "NO_ACTION" for x in results),
+    }
+    outstanding = sum(
+        p.amount for p in promises if p.status.lower() != "paid"
+    )
+
+    print()
+    print("=" * 70)
+    print("PROMISE-TO-PAY SUMMARY")
+    print("=" * 70)
+    print(f"Promises observed: {len(promises)}")
+    print(f"Promise amount at risk: ₹{outstanding:,.2f}")
+    print(f"Payment reminders: {counts['SEND_PAYMENT_REMINDER']}")
+    print(f"Stronger reminders: {counts['SEND_STRONGER_REMINDER']}")
+    print(f"Account escalations: {counts['ESCALATE_ACCOUNT']}")
+    print(f"Human escalations: {counts['ESCALATE_HUMAN']}")
+    print(f"Waiting: {counts['WAIT']}")
+    print(f"Already paid / no action: {counts['NO_ACTION']}")
+    print("Confirmed Promise-to-Pay revenue recovered: ₹0.00")
+    print("Note: a promise or reminder is not confirmed payment revenue.")
+    print("=" * 70)
 
 def load_generated_checkouts() -> list[CheckoutSession]:
     """
@@ -486,6 +642,20 @@ def main():
         "Checkout dataset validation passed."
     )
 
+    b2b_receivables = load_generated_b2b()
+
+    validate_b2b_dataset(
+        b2b_receivables
+    )
+
+    print(
+        "B2B receivables dataset validation passed."
+    )
+
+    promises = load_generated_promises()
+    validate_promise_to_pay_dataset(promises)
+    print("Promise-to-Pay dataset validation passed.")
+
     # -----------------------------------------------------
     # Step 3 — Initialize database
     # -----------------------------------------------------
@@ -540,6 +710,12 @@ def main():
         )
     )
 
+    b2b_results = processor.process_b2b_batch(
+        b2b_receivables
+    )
+
+    promise_results = processor.process_promise_to_pay_batch(promises)
+
     # -----------------------------------------------------
     # Safety verification
     # -----------------------------------------------------
@@ -574,6 +750,26 @@ def main():
     print_checkout_summary(
         sessions=checkout_sessions,
         checkout_results=checkout_results,
+    )
+
+    verify_b2b_audit_coverage(
+        audit_logger=audit_logger,
+        receivables=b2b_receivables,
+    )
+
+    print_b2b_summary(
+        receivables=b2b_receivables,
+        b2b_results=b2b_results,
+    )
+
+    verify_promise_to_pay_audit_coverage(
+        audit_logger=audit_logger,
+        promises=promises,
+    )
+
+    print_promise_to_pay_summary(
+        promises=promises,
+        results=promise_results,
     )
 
     # -----------------------------------------------------
@@ -614,6 +810,16 @@ def main():
     print(
         f"Checkout sessions processed: "
         f"{len(checkout_sessions)}"
+    )
+
+    print(
+        f"B2B receivables processed: "
+        f"{len(b2b_receivables)}"
+    )
+
+    print(
+        f"Promise-to-Pay records processed: "
+        f"{len(promises)}"
     )
 
     print(

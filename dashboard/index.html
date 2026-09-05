@@ -2,11 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Revenue Recovery Agent</title>
 
     <style>
@@ -16,260 +12,293 @@
 
         body {
             margin: 0;
-            font-family:
-                Inter,
-                ui-sans-serif,
-                system-ui,
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                sans-serif;
-
+            font-family: Inter, Arial, sans-serif;
             background: #f5f7fb;
             color: #172033;
         }
 
         .container {
-            width: min(1450px, 94%);
-            margin: 0 auto;
-            padding: 32px 0 60px;
+            max-width: 1500px;
+            margin: auto;
+            padding: 28px;
         }
 
         header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 20px;
             margin-bottom: 28px;
         }
 
-        h1 {
+        header h1 {
             margin: 0;
-            font-size: 32px;
-            letter-spacing: -0.8px;
+            font-size: 30px;
         }
 
-        .subtitle {
-            margin-top: 8px;
-            color: #667085;
-            font-size: 15px;
+        header p {
+            margin: 7px 0 0;
+            color: #687386;
+            font-size: 14px;
         }
 
         .status {
-            padding: 8px 14px;
-            border-radius: 999px;
-            background: #e8f7ee;
-            color: #157347;
-            font-size: 13px;
-            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            margin-top: 12px;
+            padding: 6px 10px;
+            border-radius: 20px;
+            background: #e9f8ef;
+            color: #177245;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #25a55f;
         }
 
         .section {
-            margin-top: 30px;
+            margin-bottom: 30px;
         }
 
         .section-title {
-            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 13px;
+        }
+
+        .section-title h2 {
+            margin: 0;
             font-size: 19px;
-            font-weight: 800;
+        }
+
+        .section-title span {
+            color: #7b8494;
+            font-size: 12px;
         }
 
         .grid {
             display: grid;
-            grid-template-columns:
-                repeat(4, minmax(0, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
         }
 
         .grid-3 {
             display: grid;
-            grid-template-columns:
-                repeat(3, minmax(0, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+        }
+
+        .grid-6 {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
         }
 
         .card {
             background: white;
-            border: 1px solid #e7eaf0;
-            border-radius: 14px;
-            padding: 20px;
-            box-shadow:
-                0 4px 14px rgba(16, 24, 40, 0.04);
+            border: 1px solid #e5e9f0;
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 2px 7px rgba(20, 30, 50, 0.035);
         }
 
-        .label {
-            color: #667085;
-            font-size: 13px;
-            font-weight: 600;
+        .kpi-label {
+            font-size: 12px;
+            color: #778195;
+            margin-bottom: 9px;
         }
 
-        .value {
-            margin-top: 8px;
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -0.6px;
+        .kpi-value {
+            font-size: 25px;
+            font-weight: 750;
+            letter-spacing: -0.4px;
         }
 
-        .small-value {
+        .kpi-sub {
+            margin-top: 6px;
+            color: #8992a2;
+            font-size: 11px;
+        }
+
+        .module-card {
+            min-height: 120px;
+        }
+
+        .module-card .kpi-value {
             font-size: 21px;
         }
 
-        .muted {
-            color: #98a2b3;
-            font-size: 12px;
-            margin-top: 6px;
-        }
-
-        .progress {
-            height: 8px;
-            background: #edf0f5;
-            border-radius: 999px;
+        .table-card {
+            padding: 0;
             overflow: hidden;
-            margin-top: 12px;
-        }
-
-        .progress-bar {
-            height: 100%;
-            width: 0%;
-            background: #344054;
-            border-radius: 999px;
-        }
-
-        .metric-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 20px;
-            padding: 11px 0;
-            border-bottom: 1px solid #eef0f4;
-        }
-
-        .metric-row:last-child {
-            border-bottom: 0;
-        }
-
-        .metric-name {
-            color: #667085;
-        }
-
-        .metric-number {
-            font-weight: 800;
-        }
-
-        .two-column {
-            display: grid;
-            grid-template-columns:
-                1fr 1fr;
-            gap: 16px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 13px;
+            font-size: 12px;
         }
 
         th {
             text-align: left;
-            padding: 11px;
-            color: #667085;
-            background: #f8f9fb;
-            border-bottom: 1px solid #e4e7ec;
+            padding: 12px 14px;
+            background: #fafbfc;
+            border-bottom: 1px solid #e6eaf0;
+            color: #697487;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+            white-space: nowrap;
         }
 
         td {
-            padding: 11px;
-            border-bottom: 1px solid #eef0f4;
-            vertical-align: top;
+            padding: 12px 14px;
+            border-bottom: 1px solid #edf0f4;
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
         }
 
         .badge {
             display: inline-block;
-            padding: 5px 9px;
-            border-radius: 999px;
-            background: #f1f3f7;
-            font-size: 11px;
-            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
             white-space: nowrap;
         }
 
-        .badge-real {
-            background: #e8f7ee;
-            color: #157347;
-        }
-
-        .badge-simulated {
-            background: #fff4df;
-            color: #9a6700;
-        }
-
-        .badge-danger {
-            background: #fdecec;
-            color: #b42318;
+        .badge-payment {
+            background: #edf3ff;
+            color: #3568c8;
         }
 
         .badge-checkout {
-            background: #eef4ff;
-            color: #3156a3;
+            background: #f1edff;
+            color: #6847c7;
         }
 
-        .audit-wrapper {
-            overflow-x: auto;
+        .badge-b2b {
+            background: #fff3df;
+            color: #a66300;
         }
 
-        .audit-table {
-            min-width: 1100px;
+        .badge-ptp {
+            background: #e9f8f0;
+            color: #187347;
+        }
+
+        .badge-neutral {
+            background: #eef1f5;
+            color: #657083;
+        }
+
+        .badge-danger {
+            background: #ffebeb;
+            color: #b73b3b;
+        }
+
+        .badge-success {
+            background: #e8f7ee;
+            color: #197342;
+        }
+
+        .badge-warning {
+            background: #fff4dd;
+            color: #9b6500;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+
+        .list {
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
+        }
+
+        .list-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 11px 12px;
+            background: #fafbfc;
+            border-radius: 8px;
+            border: 1px solid #edf0f4;
+        }
+
+        .list-name {
+            font-size: 12px;
+            color: #4c5769;
+        }
+
+        .list-value {
+            font-weight: 700;
+            font-size: 12px;
         }
 
         .empty {
-            padding: 30px;
             text-align: center;
-            color: #98a2b3;
+            padding: 25px;
+            color: #8a93a2;
+            font-size: 12px;
         }
 
-        .footer-note {
-            margin-top: 28px;
-            padding: 16px;
-            background: #fff;
-            border: 1px solid #e7eaf0;
-            border-radius: 12px;
-            color: #667085;
-            font-size: 13px;
-            line-height: 1.6;
+        .footer {
+            margin-top: 30px;
+            padding: 18px 0;
+            color: #8a93a2;
+            font-size: 11px;
+            text-align: center;
+        }
+
+        .scroll {
+            overflow-x: auto;
         }
 
         .error {
-            padding: 20px;
-            background: #fff1f1;
-            border: 1px solid #ffc9c9;
-            border-radius: 12px;
-            color: #b42318;
+            display: none;
+            margin-bottom: 20px;
+            padding: 13px 15px;
+            border-radius: 9px;
+            background: #fff0f0;
+            border: 1px solid #ffd1d1;
+            color: #a63838;
+            font-size: 12px;
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1200px) {
+            .grid-6 {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
             .grid {
-                grid-template-columns:
-                    repeat(2, minmax(0, 1fr));
-            }
-
-            .grid-3 {
-                grid-template-columns:
-                    1fr 1fr;
+                grid-template-columns: repeat(2, 1fr);
             }
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 800px) {
+            .container {
+                padding: 18px;
+            }
+
             .grid,
             .grid-3,
-            .two-column {
+            .grid-6,
+            .two-col {
                 grid-template-columns: 1fr;
             }
 
-            header {
-                flex-direction: column;
-            }
-
-            h1 {
-                font-size: 26px;
+            header h1 {
+                font-size: 24px;
             }
         }
     </style>
@@ -280,471 +309,398 @@
 <div class="container">
 
     <header>
-        <div>
-            <h1>Revenue Recovery Agent</h1>
-
-            <div class="subtitle">
-                Failed payments + checkout drop-off recovery
-                · Read-only audit dashboard
-            </div>
-        </div>
+        <h1>Revenue Recovery Agent</h1>
+        <p>
+            Failed payments + checkout drop-off + B2B receivables + promise-to-pay recovery
+            · Read-only audit dashboard
+        </p>
 
         <div class="status">
-            ● LIVE AUDIT DATA
+            <span class="status-dot"></span>
+            Live · Auto-refresh every 10 seconds
         </div>
     </header>
 
-    <div id="error"></div>
+    <div id="errorBox" class="error"></div>
 
-    <!-- =====================================================
-         TOP KPIs
-         ===================================================== -->
-
-    <div class="grid">
-
-        <div class="card">
-            <div class="label">
-                Total Revenue at Risk
-            </div>
-
-            <div
-                class="value"
-                id="total-risk"
-            >
-                ₹0
-            </div>
-
-            <div class="muted">
-                Payments + checkout opportunities
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="label">
-                Confirmed Revenue Recovered
-            </div>
-
-            <div
-                class="value"
-                id="confirmed-recovered"
-            >
-                ₹0
-            </div>
-
-            <div class="muted">
-                Settlement-confirmed only
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="label">
-                Recovery Rate
-            </div>
-
-            <div
-                class="value"
-                id="recovery-rate"
-            >
-                0.00%
-            </div>
-
-            <div class="muted">
-                Based on confirmed revenue
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="label">
-                Real API Actions
-            </div>
-
-            <div
-                class="value"
-                id="api-calls"
-            >
-                0 / 20
-            </div>
-
-            <div class="progress">
-                <div
-                    class="progress-bar"
-                    id="api-progress"
-                ></div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- =====================================================
-         SYSTEM OVERVIEW
-         ===================================================== -->
-
-    <div class="section">
-
+    <!-- TOP KPIs -->
+    <section class="section">
         <div class="section-title">
-            System Overview
+            <h2>Revenue Overview</h2>
+            <span>All recovery modules</span>
         </div>
 
         <div class="grid">
 
             <div class="card">
-                <div class="label">
-                    Failed Payments
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="payment-records"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Payment records processed
-                </div>
+                <div class="kpi-label">Total Revenue at Risk</div>
+                <div class="kpi-value" id="totalRisk">₹0</div>
+                <div class="kpi-sub">Payments + checkout + B2B + PTP</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Checkout Sessions
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-records"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Drop-off detection batch
-                </div>
+                <div class="kpi-label">Confirmed Revenue Recovered</div>
+                <div class="kpi-value" id="confirmedRecovered">₹0</div>
+                <div class="kpi-sub">Only confirmed real payments</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Still Failed
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="still-failed"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    No confirmed recovery
-                </div>
+                <div class="kpi-label">Payment Recovery Rate</div>
+                <div class="kpi-value" id="recoveryRate">0%</div>
+                <div class="kpi-sub">Confirmed Razorpay payment recovery</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Human Escalations
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="escalated"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Safety-controlled exceptions
-                </div>
+                <div class="kpi-label">Real API Actions</div>
+                <div class="kpi-value" id="apiActions">0 / 0</div>
+                <div class="kpi-sub">Bounded Payment Link API calls</div>
             </div>
 
         </div>
+    </section>
 
-    </div>
-
-    <!-- =====================================================
-         CHECKOUT DROP-OFF
-         ===================================================== -->
-
-    <div class="section">
-
+    <!-- SYSTEM OVERVIEW -->
+    <section class="section">
         <div class="section-title">
-            Checkout Drop-off Recovery
+            <h2>System Overview</h2>
+            <span id="lastUpdated">Loading...</span>
         </div>
 
         <div class="grid">
 
             <div class="card">
-                <div class="label">
-                    Checkout Value Observed
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-value"
-                >
-                    ₹0
-                </div>
+                <div class="kpi-label">Failed Payments</div>
+                <div class="kpi-value" id="paymentCount">0</div>
+                <div class="kpi-sub" id="paymentRisk">₹0 at risk</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Completed
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-completed"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    No recovery action needed
-                </div>
+                <div class="kpi-label">Checkout Sessions</div>
+                <div class="kpi-value" id="checkoutCount">0</div>
+                <div class="kpi-sub" id="checkoutRisk">₹0 observed</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Recovery Reminders
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-reminders"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Eligible abandoned checkouts
-                </div>
+                <div class="kpi-label">B2B Invoices</div>
+                <div class="kpi-value" id="b2bCount">0</div>
+                <div class="kpi-sub" id="b2bRisk">₹0 at risk</div>
             </div>
 
             <div class="card">
-                <div class="label">
-                    Customers Returned
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-returned"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Synthetic demo outcome
-                </div>
+                <div class="kpi-label">Promises to Pay</div>
+                <div class="kpi-value" id="ptpCount">0</div>
+                <div class="kpi-sub" id="ptpRisk">₹0 at risk</div>
             </div>
 
-            <div class="card">
-                <div class="label">
-                    Simulated Checkout Recovery
-                </div>
+        </div>
+    </section>
 
-                <div
-                    class="value small-value"
-                    id="checkout-simulated"
-                >
-                    ₹0
-                </div>
+    <!-- CHECKOUT -->
+    <section class="section">
+        <div class="section-title">
+            <h2>Checkout Drop-off Recovery</h2>
+            <span>Simulated follow-up workflow</span>
+        </div>
 
-                <div class="muted">
-                    Not counted as real revenue
-                </div>
+        <div class="grid-6">
+
+            <div class="card module-card">
+                <div class="kpi-label">Value Observed</div>
+                <div class="kpi-value" id="checkoutValue">₹0</div>
             </div>
 
-            <div class="card">
-                <div class="label">
-                    Still Abandoned
-                </div>
-
-                <div
-                    class="value small-value"
-                    id="checkout-abandoned"
-                >
-                    0
-                </div>
-
-                <div class="muted">
-                    Reminder sent, no return
-                </div>
+            <div class="card module-card">
+                <div class="kpi-label">Completed</div>
+                <div class="kpi-value" id="checkoutCompleted">0</div>
             </div>
 
-            <div class="card">
-                <div class="label">
-                    Confirmed Checkout Recovery
-                </div>
+            <div class="card module-card">
+                <div class="kpi-label">Reminders</div>
+                <div class="kpi-value" id="checkoutReminders">0</div>
+            </div>
 
-                <div
-                    class="value small-value"
-                    id="checkout-recovered"
-                >
-                    ₹0
-                </div>
+            <div class="card module-card">
+                <div class="kpi-label">Customers Returned</div>
+                <div class="kpi-value" id="checkoutReturned">0</div>
+            </div>
 
-                <div class="muted">
-                    Settlement-confirmed only
-                </div>
+            <div class="card module-card">
+                <div class="kpi-label">Simulated Recovery</div>
+                <div class="kpi-value" id="checkoutSimulated">₹0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Still Abandoned</div>
+                <div class="kpi-value" id="checkoutAbandoned">0</div>
             </div>
 
         </div>
 
-    </div>
+        <div style="height:12px"></div>
 
-    <!-- =====================================================
-         RECOVERY METRICS
-         ===================================================== -->
+        <div class="grid">
+            <div class="card">
+                <div class="kpi-label">Confirmed Checkout Revenue</div>
+                <div class="kpi-value" id="checkoutConfirmed">₹0</div>
+                <div class="kpi-sub">
+                    Only counted when an actual payment is observed
+                </div>
+            </div>
 
-    <div class="section">
+            <div class="card">
+                <div class="kpi-label">Checkout Recovery Status</div>
+                <div class="kpi-value" id="checkoutRecoveryStatus">SIMULATED</div>
+                <div class="kpi-sub">
+                    Synthetic return events are not real revenue
+                </div>
+            </div>
+        </div>
+    </section>
 
+    <!-- B2B -->
+    <section class="section">
         <div class="section-title">
-            Honest Recovery Metrics
+            <h2>B2B Receivables Recovery</h2>
+            <span>Age-based escalation workflow</span>
+        </div>
+
+        <div class="grid-6">
+
+            <div class="card module-card">
+                <div class="kpi-label">Invoices</div>
+                <div class="kpi-value" id="b2bInvoices">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Amount at Risk</div>
+                <div class="kpi-value" id="b2bAmountRisk">₹0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Standard Reminders</div>
+                <div class="kpi-value" id="b2bReminders">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Stronger Reminders</div>
+                <div class="kpi-value" id="b2bStronger">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Account Escalations</div>
+                <div class="kpi-value" id="b2bAccount">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Human Escalations</div>
+                <div class="kpi-value" id="b2bHuman">0</div>
+            </div>
+
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div class="grid">
+
+            <div class="card">
+                <div class="kpi-label">Still Outstanding</div>
+                <div class="kpi-value" id="b2bOutstanding">₹0</div>
+                <div class="kpi-sub">Not recovered by reminder alone</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Confirmed B2B Revenue</div>
+                <div class="kpi-value" id="b2bRecovered">₹0</div>
+                <div class="kpi-sub">Actual payment only</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Workflow Status</div>
+                <div class="kpi-value">ACTIVE</div>
+                <div class="kpi-sub">Escalation rules applied deterministically</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Money Movement</div>
+                <div class="kpi-value">NONE</div>
+                <div class="kpi-sub">No automatic B2B payment collection</div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- PTP -->
+    <section class="section">
+        <div class="section-title">
+            <h2>Promise-to-Pay Recovery</h2>
+            <span>Promise tracking and escalation</span>
+        </div>
+
+        <div class="grid-6">
+
+            <div class="card module-card">
+                <div class="kpi-label">Promises Tracked</div>
+                <div class="kpi-value" id="ptpPromises">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Amount at Risk</div>
+                <div class="kpi-value" id="ptpAmountRisk">₹0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Payment Reminders</div>
+                <div class="kpi-value" id="ptpReminders">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Stronger Reminders</div>
+                <div class="kpi-value" id="ptpStronger">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Account Escalations</div>
+                <div class="kpi-value" id="ptpAccount">0</div>
+            </div>
+
+            <div class="card module-card">
+                <div class="kpi-label">Human Escalations</div>
+                <div class="kpi-value" id="ptpHuman">0</div>
+            </div>
+
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div class="grid">
+
+            <div class="card">
+                <div class="kpi-label">Waiting / Upcoming</div>
+                <div class="kpi-value" id="ptpWaiting">0</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Already Paid</div>
+                <div class="kpi-value" id="ptpPaid">0</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Still Outstanding</div>
+                <div class="kpi-value" id="ptpOutstanding">₹0</div>
+            </div>
+
+            <div class="card">
+                <div class="kpi-label">Confirmed PTP Revenue</div>
+                <div class="kpi-value" id="ptpRecovered">₹0</div>
+                <div class="kpi-sub">Promise ≠ payment</div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- HONEST METRICS -->
+    <section class="section">
+        <div class="section-title">
+            <h2>Honest Recovery Metrics</h2>
+            <span>Revenue is counted only when confirmed</span>
         </div>
 
         <div class="grid-3">
 
             <div class="card">
-
-                <div class="label">
-                    Confirmed Settlement
+                <div class="kpi-label">Confirmed Settlement Revenue</div>
+                <div class="kpi-value" id="settlementRevenue">₹0</div>
+                <div class="kpi-sub">
+                    Settlement/payment evidence required
                 </div>
-
-                <div
-                    class="value small-value"
-                    id="confirmed-detail"
-                >
-                    ₹0
-                </div>
-
-                <div class="muted">
-                    Money actually confirmed paid
-                </div>
-
             </div>
 
             <div class="card">
-
-                <div class="label">
-                    Recovery Actions Triggered
+                <div class="kpi-label">Payment Actions Triggered</div>
+                <div class="kpi-value" id="recoveryActions">0</div>
+                <div class="kpi-sub">
+                    Real bounded API actions
                 </div>
-
-                <div
-                    class="value small-value"
-                    id="triggered-detail"
-                >
-                    ₹0
-                </div>
-
-                <div class="muted">
-                    Action executed, payment not necessarily confirmed
-                </div>
-
             </div>
 
             <div class="card">
-
-                <div class="label">
-                    Simulated Actions
+                <div class="kpi-label">Simulated Actions</div>
+                <div class="kpi-value" id="simulatedActions">0</div>
+                <div class="kpi-sub">
+                    Clearly separated from real recovery
                 </div>
-
-                <div
-                    class="value small-value"
-                    id="simulated-detail"
-                >
-                    ₹0
-                </div>
-
-                <div class="muted">
-                    Excluded from recovery rate
-                </div>
-
             </div>
 
         </div>
+    </section>
 
-    </div>
+    <!-- DECISIONS + FAILURE REASONS -->
+    <section class="section">
+        <div class="two-col">
 
-    <!-- =====================================================
-         DECISIONS + FAILURE REASONS
-         ===================================================== -->
+            <div class="card">
+                <div class="section-title">
+                    <h2>Recovery Decisions</h2>
+                    <span>All payment decisions</span>
+                </div>
 
-    <div class="section two-column">
-
-        <div class="card">
-
-            <div class="section-title">
-                Recovery Decisions
+                <div id="decisions" class="list"></div>
             </div>
 
-            <div id="decisions"></div>
+            <div class="card">
+                <div class="section-title">
+                    <h2>Failure Reasons</h2>
+                    <span>Payment distribution</span>
+                </div>
 
-        </div>
-
-        <div class="card">
-
-            <div class="section-title">
-                Failure Reasons
+                <div id="failureReasons" class="list"></div>
             </div>
 
-            <div id="failure-reasons"></div>
-
         </div>
+    </section>
 
-    </div>
-
-    <!-- =====================================================
-         EXCEPTIONS
-         ===================================================== -->
-
-    <div class="section">
-
+    <!-- SAFETY EXCEPTIONS -->
+    <section class="section">
         <div class="section-title">
-            Safety Exceptions
+            <h2>Safety Exceptions</h2>
+            <span>Payment stopping rules and escalations</span>
         </div>
 
-        <div class="card">
-
-            <div class="audit-wrapper">
+        <div class="card table-card">
+            <div class="scroll">
                 <table>
                     <thead>
                         <tr>
                             <th>Payment</th>
-                            <th>Amount</th>
-                            <th>Failure</th>
-                            <th>Decision</th>
+                            <th>Customer</th>
                             <th>Reason</th>
+                            <th>Decision</th>
+                            <th>Action</th>
                             <th>Outcome</th>
                         </tr>
                     </thead>
-
                     <tbody id="exceptions"></tbody>
                 </table>
             </div>
-
         </div>
+    </section>
 
-    </div>
-
-    <!-- =====================================================
-         AUDIT TRAIL
-         ===================================================== -->
-
-    <div class="section">
-
+    <!-- AUDIT TRAIL -->
+    <section class="section">
         <div class="section-title">
-            Audit Trail
+            <h2>Audit Trail</h2>
+            <span>Latest 100 decisions</span>
         </div>
 
-        <div class="card">
-
-            <div class="audit-wrapper">
-
-                <table class="audit-table">
-
+        <div class="card table-card">
+            <div class="scroll">
+                <table>
                     <thead>
                         <tr>
                             <th>ID</th>
                             <th>Type</th>
                             <th>Record</th>
+                            <th>Customer / Company</th>
                             <th>Amount</th>
                             <th>Decision</th>
                             <th>Action</th>
@@ -755,500 +711,616 @@
                         </tr>
                     </thead>
 
-                    <tbody id="audit-records"></tbody>
-
+                    <tbody id="audit"></tbody>
                 </table>
-
             </div>
-
         </div>
+    </section>
 
-    </div>
-
-    <div class="footer-note">
-        <strong>Important:</strong>
-        This dashboard intentionally separates
-        <strong>confirmed recovered revenue</strong>,
-        <strong>recovery actions triggered</strong>, and
-        <strong>simulated actions</strong>.
-        A reminder or Payment Link creation is not treated as recovered
-        revenue until the financial outcome is confirmed.
+    <div class="footer">
+        Failed Payment Recovery Agent · Razorpay TEST MODE · Read-only dashboard
     </div>
 
 </div>
 
-
 <script>
+    const API_URL = "/api/dashboard";
 
-const API_URL = "/api/dashboard";
+    function number(value) {
+        return Number(value || 0).toLocaleString("en-IN");
+    }
 
-
-function money(value) {
-    return "₹" + Number(value || 0).toLocaleString(
-        "en-IN",
-        {
-            minimumFractionDigits: 2,
+    function money(value) {
+        return "₹" + Number(value || 0).toLocaleString("en-IN", {
+            minimumFractionDigits: 0,
             maximumFractionDigits: 2
+        });
+    }
+
+    function escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return "";
         }
-    );
-}
 
-
-function number(value) {
-    return Number(value || 0).toLocaleString("en-IN");
-}
-
-
-function escapeHtml(value) {
-    if (value === null || value === undefined) {
-        return "";
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
+    function typeBadge(type) {
+        const normalized = String(type || "").toLowerCase();
 
+        if (normalized === "checkout") {
+            return `<span class="badge badge-checkout">CHECKOUT</span>`;
+        }
 
-function decisionBadge(decision) {
+        if (normalized === "b2b") {
+            return `<span class="badge badge-b2b">B2B</span>`;
+        }
 
-    let extra = "";
+        if (
+            normalized === "promise_to_pay" ||
+            normalized === "ptp" ||
+            normalized === "promise"
+        ) {
+            return `<span class="badge badge-ptp">PTP</span>`;
+        }
 
-    if (decision === "ESCALATE_HUMAN") {
-        extra = " badge-danger";
+        return `<span class="badge badge-payment">PAYMENT</span>`;
     }
 
-    return `
-        <span class="badge${extra}">
-            ${escapeHtml(decision)}
-        </span>
-    `;
-}
+    function decisionBadge(decision) {
+        const value = String(decision || "—");
 
+        let cls = "badge-neutral";
 
-function typeBadge(type) {
+        if (
+            value.includes("ESCALATE") ||
+            value.includes("DO_NOT_RETRY")
+        ) {
+            cls = "badge-danger";
+        } else if (
+            value.includes("RETRY") ||
+            value.includes("REMINDER") ||
+            value.includes("LINK")
+        ) {
+            cls = "badge-warning";
+        } else if (
+            value.includes("NO_ACTION") ||
+            value.includes("WAIT")
+        ) {
+            cls = "badge-neutral";
+        }
 
-    if (type === "checkout") {
-        return `
-            <span class="badge badge-checkout">
-                CHECKOUT
-            </span>
-        `;
+        return `<span class="badge ${cls}">${escapeHtml(value)}</span>`;
     }
 
-    return `
-        <span class="badge">
-            PAYMENT
-        </span>
-    `;
-}
+    function outcomeBadge(outcome) {
+        const value = String(outcome || "—");
 
+        let cls = "badge-neutral";
 
-function renderDecisions(decisions) {
+        if (
+            value.includes("recovered") ||
+            value.includes("paid") ||
+            value.includes("RETURNED")
+        ) {
+            cls = "badge-success";
+        } else if (
+            value.includes("escalat") ||
+            value.includes("abandoned") ||
+            value.includes("outstanding")
+        ) {
+            cls = "badge-danger";
+        }
 
-    const container =
-        document.getElementById("decisions");
-
-    if (!decisions.length) {
-        container.innerHTML =
-            `<div class="empty">No decisions found</div>`;
-        return;
+        return `<span class="badge ${cls}">${escapeHtml(value)}</span>`;
     }
 
-    container.innerHTML = decisions.map(item => `
-        <div class="metric-row">
-            <div>
-                <div>
-                    ${decisionBadge(item.decision)}
+    function apiBadge(realApi, simulated) {
+        if (realApi) {
+            return `<span class="badge badge-success">REAL</span>`;
+        }
+
+        if (simulated) {
+            return `<span class="badge badge-warning">SIMULATED</span>`;
+        }
+
+        return `<span class="badge badge-neutral">NONE</span>`;
+    }
+
+    function renderList(elementId, items, valueKey = "count") {
+        const element = document.getElementById(elementId);
+
+        if (!items || items.length === 0) {
+            element.innerHTML = `<div class="empty">No data available</div>`;
+            return;
+        }
+
+        element.innerHTML = items.map(item => {
+            const name =
+                item.decision ??
+                item.reason ??
+                item.failure_reason ??
+                item.name ??
+                "Unknown";
+
+            const value = item[valueKey] ?? 0;
+
+            return `
+                <div class="list-row">
+                    <span class="list-name">${escapeHtml(name)}</span>
+                    <span class="list-value">${number(value)}</span>
                 </div>
-
-                <div class="muted">
-                    ${number(item.count)} records
-                </div>
-            </div>
-
-            <div class="metric-number">
-                ${money(item.amount)}
-            </div>
-        </div>
-    `).join("");
-}
-
-
-function renderFailureReasons(reasons) {
-
-    const container =
-        document.getElementById("failure-reasons");
-
-    if (!reasons.length) {
-        container.innerHTML =
-            `<div class="empty">No failure reasons found</div>`;
-        return;
+            `;
+        }).join("");
     }
 
-    container.innerHTML = reasons.map(item => `
-        <div class="metric-row">
+    function renderExceptions(records) {
+        const tbody = document.getElementById("exceptions");
 
-            <div>
-                <strong>
-                    ${escapeHtml(item.reason)}
-                </strong>
+        if (!records || records.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="empty">
+                        No safety exceptions
+                    </td>
+                </tr>
+            `;
+            return;
+        }
 
-                <div class="muted">
-                    ${number(item.count)} records
-                </div>
-            </div>
-
-            <div class="metric-number">
-                ${money(item.amount)}
-            </div>
-
-        </div>
-    `).join("");
-}
-
-
-function renderExceptions(exceptions) {
-
-    const tbody =
-        document.getElementById("exceptions");
-
-    if (!exceptions.length) {
-        tbody.innerHTML = `
+        tbody.innerHTML = records.map(row => `
             <tr>
-                <td colspan="6" class="empty">
-                    No safety exceptions
+                <td>${escapeHtml(row.payment_id || "—")}</td>
+                <td>${escapeHtml(row.customer_name || "—")}</td>
+                <td>${escapeHtml(row.failure_reason || "—")}</td>
+                <td>${decisionBadge(row.decision)}</td>
+                <td>${escapeHtml(row.action_taken || "—")}</td>
+                <td>${outcomeBadge(row.outcome)}</td>
+            </tr>
+        `).join("");
+    }
+
+    function getRecordId(row) {
+        const type = String(row.record_type || "").toLowerCase();
+
+        if (type === "checkout") {
+            return row.checkout_id || "—";
+        }
+
+        if (type === "b2b") {
+            return row.invoice_id || "—";
+        }
+
+        if (
+            type === "promise_to_pay" ||
+            type === "ptp" ||
+            type === "promise"
+        ) {
+            return row.promise_id || "—";
+        }
+
+        return row.payment_id || "—";
+    }
+
+    function getCustomerOrCompany(row) {
+        const type = String(row.record_type || "").toLowerCase();
+
+        if (type === "b2b") {
+            return row.company_name || row.customer_id || "—";
+        }
+
+        return row.customer_name || row.customer_id || "—";
+    }
+
+    function renderAudit(records) {
+        const tbody = document.getElementById("audit");
+
+        if (!records || records.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="11" class="empty">
+                        No audit records available
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = records.map(row => `
+            <tr>
+                <td>${escapeHtml(row.id ?? "—")}</td>
+
+                <td>
+                    ${typeBadge(row.record_type)}
+                </td>
+
+                <td>
+                    <strong>${escapeHtml(getRecordId(row))}</strong>
+                </td>
+
+                <td>
+                    ${escapeHtml(getCustomerOrCompany(row))}
+                </td>
+
+                <td>
+                    ${money(row.amount)}
+                </td>
+
+                <td>
+                    ${decisionBadge(row.decision)}
+                </td>
+
+                <td>
+                    ${escapeHtml(row.action_taken || "—")}
+                </td>
+
+                <td>
+                    ${outcomeBadge(row.outcome)}
+                </td>
+
+                <td>
+                    ${escapeHtml(row.recovery_type || "—")}
+                </td>
+
+                <td>
+                    ${apiBadge(row.real_api_call, row.simulated)}
+                </td>
+
+                <td>
+                    ${escapeHtml(row.notes || "—")}
                 </td>
             </tr>
-        `;
-        return;
+        `).join("");
     }
 
-    tbody.innerHTML = exceptions.map(item => `
-        <tr>
+    function setText(id, value) {
+        const element = document.getElementById(id);
 
-            <td>
-                ${escapeHtml(item.payment_id)}
-            </td>
-
-            <td>
-                ${money(item.amount)}
-            </td>
-
-            <td>
-                ${escapeHtml(item.failure_reason)}
-            </td>
-
-            <td>
-                ${decisionBadge(item.decision)}
-            </td>
-
-            <td>
-                ${escapeHtml(item.decision_reason)}
-            </td>
-
-            <td>
-                ${escapeHtml(item.outcome)}
-            </td>
-
-        </tr>
-    `).join("");
-}
-
-
-function renderAudit(records) {
-
-    const tbody =
-        document.getElementById("audit-records");
-
-    if (!records.length) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="10" class="empty">
-                    No audit records found
-                </td>
-            </tr>
-        `;
-        return;
+        if (element) {
+            element.textContent = value;
+        }
     }
 
-    tbody.innerHTML = records.map(item => {
+    function renderDashboard(data) {
 
-        const record =
-            item.record_type === "checkout"
-                ? item.checkout_id
-                : item.payment_id;
+        const summary = data.summary || {};
+        const checkout = data.checkout || {};
+        const b2b = data.b2b || {};
+        const ptp = data.promise_to_pay || {};
+        const payment = data.payment || {};
+        const honest = data.honest_metrics || {};
 
-        let recovery = item.recovery_type || "none";
+        // -------------------------
+        // TOP SUMMARY
+        // -------------------------
 
-        let apiBadge = "";
-
-        if (item.real_api_call) {
-            apiBadge = `
-                <span class="badge badge-real">
-                    REAL
-                </span>
-            `;
-        }
-        else if (item.simulated) {
-            apiBadge = `
-                <span class="badge badge-simulated">
-                    SIMULATED
-                </span>
-            `;
-        }
-        else {
-            apiBadge = `
-                <span class="badge">
-                    NONE
-                </span>
-            `;
-        }
-
-        return `
-            <tr>
-
-                <td>
-                    ${escapeHtml(item.id)}
-                </td>
-
-                <td>
-                    ${typeBadge(item.record_type)}
-                </td>
-
-                <td>
-                    ${escapeHtml(record)}
-                </td>
-
-                <td>
-                    ${money(item.amount)}
-                </td>
-
-                <td>
-                    ${decisionBadge(item.decision)}
-                </td>
-
-                <td>
-                    ${escapeHtml(item.action_taken)}
-                </td>
-
-                <td>
-                    ${escapeHtml(item.outcome)}
-                </td>
-
-                <td>
-                    ${escapeHtml(recovery)}
-                </td>
-
-                <td>
-                    ${apiBadge}
-                </td>
-
-                <td>
-                    ${escapeHtml(item.notes)}
-                </td>
-
-            </tr>
-        `;
-    }).join("");
-}
-
-
-async function loadDashboard() {
-
-    const error =
-        document.getElementById("error");
-
-    try {
-
-        const response =
-            await fetch(API_URL, {
-                cache: "no-store"
-            });
-
-        if (!response.ok) {
-            throw new Error(
-                `HTTP ${response.status}`
-            );
-        }
-
-        const data =
-            await response.json();
-
-        if (data.error) {
-            throw new Error(data.error);
-        }
-
-        const summary = data.summary;
-        const checkout = data.checkout;
-
-        // -------------------------------------------------
-        // Main KPIs
-        // -------------------------------------------------
-
-        document.getElementById(
-            "total-risk"
-        ).textContent =
-            money(summary.total_amount_at_risk);
-
-        document.getElementById(
-            "confirmed-recovered"
-        ).textContent =
-            money(summary.confirmed_recovered);
-
-        document.getElementById(
-            "recovery-rate"
-        ).textContent =
-            summary.payment_recovery_rate.toFixed(2)
-            + "%";
-
-        document.getElementById(
-            "api-calls"
-        ).textContent =
-            `${number(summary.real_api_calls)} / ${number(summary.api_cap)}`;
-
-        const apiPercent =
-            Math.min(
-                100,
-                summary.real_api_calls
-                / summary.api_cap
-                * 100
-            );
-
-        document.getElementById(
-            "api-progress"
-        ).style.width =
-            apiPercent + "%";
-
-        // -------------------------------------------------
-        // System overview
-        // -------------------------------------------------
-
-        document.getElementById(
-            "payment-records"
-        ).textContent =
-            number(summary.payment_records);
-
-        document.getElementById(
-            "checkout-records"
-        ).textContent =
-            number(summary.checkout_records);
-
-        document.getElementById(
-            "still-failed"
-        ).textContent =
-            number(summary.still_failed);
-
-        document.getElementById(
-            "escalated"
-        ).textContent =
-            number(summary.escalated);
-
-        // -------------------------------------------------
-        // Checkout
-        // -------------------------------------------------
-
-        document.getElementById(
-            "checkout-value"
-        ).textContent =
-            money(checkout.value_observed);
-
-        document.getElementById(
-            "checkout-completed"
-        ).textContent =
-            number(checkout.completed);
-
-        document.getElementById(
-            "checkout-reminders"
-        ).textContent =
-            number(checkout.reminders);
-
-        document.getElementById(
-            "checkout-returned"
-        ).textContent =
-            number(checkout.returned);
-
-        document.getElementById(
-            "checkout-simulated"
-        ).textContent =
-            money(checkout.simulated_recovery_amount);
-
-        document.getElementById(
-            "checkout-abandoned"
-        ).textContent =
-            number(checkout.still_abandoned);
-
-        document.getElementById(
-            "checkout-recovered"
-        ).textContent =
-            money(checkout.confirmed_revenue);
-
-        // -------------------------------------------------
-        // Honest metrics
-        // -------------------------------------------------
-
-        document.getElementById(
-            "confirmed-detail"
-        ).textContent =
-            money(summary.confirmed_recovered);
-
-        document.getElementById(
-            "triggered-detail"
-        ).textContent =
-            money(summary.recovery_actions_amount)
-            + ` (${number(summary.recovery_actions_triggered)} actions)`;
-
-        document.getElementById(
-            "simulated-detail"
-        ).textContent =
-            money(summary.simulated_amount)
-            + ` (${number(summary.simulated_count)} actions)`;
-
-        // -------------------------------------------------
-        // Tables
-        // -------------------------------------------------
-
-        renderDecisions(data.decisions);
-
-        renderFailureReasons(
-            data.failure_reasons
+        setText(
+            "totalRisk",
+            money(summary.total_amount_at_risk)
         );
+
+        setText(
+            "confirmedRecovered",
+            money(summary.confirmed_recovered_revenue)
+        );
+
+        setText(
+            "recoveryRate",
+            `${Number(summary.payment_recovery_rate || 0).toFixed(2)}%`
+        );
+
+        setText(
+            "apiActions",
+            `${number(summary.real_api_actions || 0)} / ${number(summary.max_real_api_calls || 0)}`
+        );
+
+        // -------------------------
+        // SYSTEM OVERVIEW
+        // -------------------------
+
+        setText(
+            "paymentCount",
+            number(payment.count || summary.payment_count)
+        );
+
+        setText(
+            "paymentRisk",
+            `${money(payment.amount_at_risk || summary.payment_amount_at_risk)} at risk`
+        );
+
+        setText(
+            "checkoutCount",
+            number(checkout.count)
+        );
+
+        setText(
+            "checkoutRisk",
+            `${money(checkout.value_observed)} observed`
+        );
+
+        setText(
+            "b2bCount",
+            number(b2b.invoices || b2b.count)
+        );
+
+        setText(
+            "b2bRisk",
+            `${money(b2b.amount_at_risk)} at risk`
+        );
+
+        setText(
+            "ptpCount",
+            number(ptp.promises || ptp.count)
+        );
+
+        setText(
+            "ptpRisk",
+            `${money(ptp.amount_at_risk)} at risk`
+        );
+
+        // -------------------------
+        // CHECKOUT
+        // -------------------------
+
+        setText(
+            "checkoutValue",
+            money(checkout.value_observed)
+        );
+
+        setText(
+            "checkoutCompleted",
+            number(checkout.completed)
+        );
+
+        setText(
+            "checkoutReminders",
+            number(checkout.reminders)
+        );
+
+        setText(
+            "checkoutReturned",
+            number(checkout.customers_returned)
+        );
+
+        setText(
+            "checkoutSimulated",
+            money(checkout.simulated_recovery)
+        );
+
+        setText(
+            "checkoutAbandoned",
+            number(checkout.still_abandoned)
+        );
+
+        setText(
+            "checkoutConfirmed",
+            money(checkout.confirmed_revenue)
+        );
+
+        // -------------------------
+        // B2B
+        // -------------------------
+
+        setText(
+            "b2bInvoices",
+            number(b2b.invoices || b2b.count)
+        );
+
+        setText(
+            "b2bAmountRisk",
+            money(b2b.amount_at_risk)
+        );
+
+        setText(
+            "b2bReminders",
+            number(b2b.standard_reminders)
+        );
+
+        setText(
+            "b2bStronger",
+            number(b2b.stronger_reminders)
+        );
+
+        setText(
+            "b2bAccount",
+            number(b2b.account_escalations)
+        );
+
+        setText(
+            "b2bHuman",
+            number(b2b.human_escalations)
+        );
+
+        setText(
+            "b2bOutstanding",
+            money(b2b.still_outstanding)
+        );
+
+        setText(
+            "b2bRecovered",
+            money(b2b.confirmed_revenue)
+        );
+
+        // -------------------------
+        // PTP
+        // -------------------------
+
+        setText(
+            "ptpPromises",
+            number(ptp.promises || ptp.count)
+        );
+
+        setText(
+            "ptpAmountRisk",
+            money(ptp.amount_at_risk)
+        );
+
+        setText(
+            "ptpReminders",
+            number(ptp.payment_reminders)
+        );
+
+        setText(
+            "ptpStronger",
+            number(ptp.stronger_reminders)
+        );
+
+        setText(
+            "ptpAccount",
+            number(ptp.account_escalations)
+        );
+
+        setText(
+            "ptpHuman",
+            number(ptp.human_escalations)
+        );
+
+        setText(
+            "ptpWaiting",
+            number(ptp.waiting)
+        );
+
+        setText(
+            "ptpPaid",
+            number(ptp.already_paid)
+        );
+
+        setText(
+            "ptpOutstanding",
+            money(ptp.still_outstanding)
+        );
+
+        setText(
+            "ptpRecovered",
+            money(ptp.confirmed_revenue)
+        );
+
+        // -------------------------
+        // HONEST METRICS
+        // -------------------------
+
+        setText(
+            "settlementRevenue",
+            money(
+                honest.confirmed_settlement_revenue ??
+                summary.confirmed_recovered_revenue
+            )
+        );
+
+        setText(
+            "recoveryActions",
+            number(
+                honest.payment_actions ??
+                summary.real_api_actions
+            )
+        );
+
+        setText(
+            "simulatedActions",
+            number(
+                honest.simulated_actions ??
+                summary.simulated_actions
+            )
+        );
+
+        // -------------------------
+        // DECISIONS
+        // -------------------------
+
+        renderList(
+            "decisions",
+            data.decisions || [],
+            "count"
+        );
+
+        // -------------------------
+        // FAILURE REASONS
+        // -------------------------
+
+        renderList(
+            "failureReasons",
+            data.failure_reasons || [],
+            "count"
+        );
+
+        // -------------------------
+        // EXCEPTIONS
+        // -------------------------
 
         renderExceptions(
-            data.exceptions
+            data.exceptions || []
         );
+
+        // -------------------------
+        // AUDIT
+        // -------------------------
 
         renderAudit(
-            data.audit_records
+            data.audit_records || []
         );
 
-        error.innerHTML = "";
+        // -------------------------
+        // TIMESTAMP
+        // -------------------------
 
-    } catch (err) {
-
-        error.innerHTML = `
-            <div class="error">
-                <strong>
-                    Dashboard error:
-                </strong>
-
-                ${escapeHtml(err.message)}
-            </div>
-        `;
+        setText(
+            "lastUpdated",
+            "Updated " + new Date().toLocaleTimeString()
+        );
     }
-}
 
+    async function loadDashboard() {
 
-loadDashboard();
+        const errorBox = document.getElementById("errorBox");
 
-setInterval(
-    loadDashboard,
-    10000
-);
+        try {
 
+            const response = await fetch(
+                API_URL,
+                {
+                    cache: "no-store"
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `HTTP ${response.status}`
+                );
+            }
+
+            const data = await response.json();
+
+            errorBox.style.display = "none";
+
+            renderDashboard(data);
+
+        } catch (error) {
+
+            console.error(
+                "Dashboard error:",
+                error
+            );
+
+            errorBox.style.display = "block";
+
+            errorBox.textContent =
+                "Unable to load dashboard data. Make sure dashboard/server.py is running.";
+        }
+    }
+
+    // Initial load
+    loadDashboard();
+
+    // Auto refresh
+    setInterval(
+        loadDashboard,
+        10000
+    );
 </script>
 
 </body>

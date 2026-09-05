@@ -11,16 +11,21 @@ class AuditLogger:
     """
     SQLite-based audit logger.
 
-    The audit database stores the decisions, actions,
-    outcomes, and confirmed settlement information for
-    the current processing batch.
+    Supports:
+        - Failed payment recovery records
+        - Checkout drop-off recovery records
+        - B2B receivable recovery records
+        - Promise-to-Pay recovery records
 
-    Supports both:
-    - Failed payment recovery records
-    - Checkout drop-off recovery records
-
-    Complex Python objects such as dictionaries and lists
-    are converted to JSON strings before being stored.
+    The audit trail records:
+        decision
+        action
+        outcome
+        recovery classification
+        API activity
+        settlement information
+        B2B collection information
+        Promise-to-Pay information
     """
 
     def __init__(
@@ -44,24 +49,24 @@ class AuditLogger:
 
         self._initialize_database()
 
-    # -----------------------------------------------------
-    # Database connection
-    # -----------------------------------------------------
+    # =====================================================
+    # Database Connection
+    # =====================================================
 
     def _connect(self):
         return sqlite3.connect(
             str(self.database_path)
         )
 
-    # -----------------------------------------------------
-    # Initialize database
-    # -----------------------------------------------------
+    # =====================================================
+    # Initialize Database
+    # =====================================================
 
     def _initialize_database(self) -> None:
         """
         Create the audit table if it does not exist.
 
-        Also migrate older database versions by adding any
+        Also migrates older database versions by adding
         newly introduced columns.
         """
 
@@ -76,6 +81,7 @@ class AuditLogger:
                     timestamp TEXT NOT NULL,
 
                     record_type TEXT DEFAULT 'payment',
+
                     checkout_id TEXT,
                     customer_id TEXT,
                     currency TEXT,
@@ -116,7 +122,21 @@ class AuditLogger:
                     settlement_payment_id TEXT,
                     settlement_api_status_code INTEGER,
                     settlement_error TEXT,
-                    settlement_checked_at TEXT
+                    settlement_checked_at TEXT,
+
+                    invoice_id TEXT,
+                    company_name TEXT,
+                    due_date TEXT,
+                    days_overdue INTEGER,
+                    payment_status TEXT,
+                    previous_reminders INTEGER DEFAULT 0,
+                    promised_payment_date TEXT,
+                    paid_at TEXT,
+
+                    promise_id TEXT,
+                    promise_status TEXT,
+                    previous_missed_promises INTEGER DEFAULT 0,
+                    contact_channel TEXT
                 )
                 """
             )
@@ -127,19 +147,16 @@ class AuditLogger:
                 connection
             )
 
-    # -----------------------------------------------------
-    # Schema migration
-    # -----------------------------------------------------
+    # =====================================================
+    # Schema Migration
+    # =====================================================
 
     def _migrate_schema(
         self,
         connection,
     ) -> None:
         """
-        Add missing columns to an older audit database.
-
-        This allows an existing audit.db to continue being
-        used after the project schema is upgraded.
+        Add missing columns to older audit databases.
         """
 
         cursor = connection.cursor()
@@ -158,6 +175,7 @@ class AuditLogger:
         required_columns = {
             "timestamp": "TEXT",
             "record_type": "TEXT DEFAULT 'payment'",
+
             "checkout_id": "TEXT",
             "customer_id": "TEXT",
             "currency": "TEXT",
@@ -183,14 +201,14 @@ class AuditLogger:
             "outcome": "TEXT",
             "recovery_type": "TEXT",
 
-            "real_api_call": "INTEGER DEFAULT 0",
-            "simulated": "INTEGER DEFAULT 0",
+            "real_api_call": (
+                "INTEGER DEFAULT 0"
+            ),
+            "simulated": (
+                "INTEGER DEFAULT 0"
+            ),
 
             "notes": "TEXT",
-
-            # -------------------------------------------------
-            # Confirmed settlement fields
-            # -------------------------------------------------
 
             "payment_link_id": "TEXT",
             "settlement_status": "TEXT",
@@ -209,6 +227,32 @@ class AuditLogger:
             ),
             "settlement_error": "TEXT",
             "settlement_checked_at": "TEXT",
+
+            # -------------------------------------------------
+            # B2B fields
+            # -------------------------------------------------
+
+            "invoice_id": "TEXT",
+            "company_name": "TEXT",
+            "due_date": "TEXT",
+            "days_overdue": "INTEGER",
+            "payment_status": "TEXT",
+            "previous_reminders": (
+                "INTEGER DEFAULT 0"
+            ),
+            "promised_payment_date": "TEXT",
+            "paid_at": "TEXT",
+
+            # -------------------------------------------------
+            # Promise-to-Pay fields
+            # -------------------------------------------------
+
+            "promise_id": "TEXT",
+            "promise_status": "TEXT",
+            "previous_missed_promises": (
+                "INTEGER DEFAULT 0"
+            ),
+            "contact_channel": "TEXT",
         }
 
         for (
@@ -229,18 +273,13 @@ class AuditLogger:
 
         connection.commit()
 
-    # -----------------------------------------------------
-    # Clear current audit records
-    # -----------------------------------------------------
+    # =====================================================
+    # Clear Current Audit Records
+    # =====================================================
 
     def clear_logs(self) -> None:
         """
         Clear previous development/run records.
-
-        The project processes one synthetic batch at a time.
-        Starting a new batch with a clean audit table prevents
-        previous executions from contaminating the current
-        batch's metrics and audit verification.
 
         The table structure itself is preserved.
         """
@@ -256,9 +295,9 @@ class AuditLogger:
 
             connection.commit()
 
-    # -----------------------------------------------------
-    # Serialize values
-    # -----------------------------------------------------
+    # =====================================================
+    # Serialize Values
+    # =====================================================
 
     @staticmethod
     def _serialize(
@@ -266,8 +305,6 @@ class AuditLogger:
     ) -> Optional[str]:
         """
         Convert Python values into SQLite-compatible values.
-
-        Dictionaries, lists, and tuples are stored as JSON.
         """
 
         if value is None:
@@ -301,9 +338,9 @@ class AuditLogger:
 
         return str(value)
 
-    # -----------------------------------------------------
-    # Boolean conversion
-    # -----------------------------------------------------
+    # =====================================================
+    # Boolean Conversion
+    # =====================================================
 
     @staticmethod
     def _bool_to_int(
@@ -311,9 +348,9 @@ class AuditLogger:
     ) -> int:
         return 1 if bool(value) else 0
 
-    # -----------------------------------------------------
-    # Store audit record
-    # -----------------------------------------------------
+    # =====================================================
+    # Store Audit Record
+    # =====================================================
 
     def log(
         self,
@@ -338,7 +375,7 @@ class AuditLogger:
         timestamp: Optional[str] = None,
 
         # -------------------------------------------------
-        # Checkout information
+        # Checkout fields
         # -------------------------------------------------
 
         record_type: str = "payment",
@@ -348,7 +385,7 @@ class AuditLogger:
         started_at: Optional[str] = None,
 
         # -------------------------------------------------
-        # Confirmed settlement information
+        # Settlement fields
         # -------------------------------------------------
 
         payment_link_id: Optional[str] = None,
@@ -360,13 +397,31 @@ class AuditLogger:
         settlement_api_status_code: Optional[int] = None,
         settlement_error: Optional[str] = None,
         settlement_checked_at: Optional[str] = None,
+
+        # -------------------------------------------------
+        # B2B fields
+        # -------------------------------------------------
+
+        invoice_id: Optional[str] = None,
+        company_name: Optional[str] = None,
+        due_date: Optional[str] = None,
+        days_overdue: Optional[int] = None,
+        payment_status: Optional[str] = None,
+        previous_reminders: int = 0,
+        promised_payment_date: Optional[str] = None,
+        paid_at: Optional[str] = None,
+
+        # -------------------------------------------------
+        # Promise-to-Pay fields
+        # -------------------------------------------------
+
+        promise_id: Optional[str] = None,
+        promise_status: Optional[str] = None,
+        previous_missed_promises: int = 0,
+        contact_channel: Optional[str] = None,
     ) -> None:
         """
         Store one complete audit record.
-
-        Settlement fields are stored separately from the
-        general API request/response fields so confirmed
-        recovered revenue can be measured reliably.
         """
 
         if timestamp is None:
@@ -376,8 +431,6 @@ class AuditLogger:
                 )
             )
 
-        # If a settlement status was supplied but no explicit
-        # check timestamp was provided, use the audit timestamp.
         if (
             settlement_status is not None
             and settlement_checked_at is None
@@ -402,6 +455,7 @@ class AuditLogger:
             cursor.execute(
                 """
                 INSERT INTO audit_logs (
+
                     timestamp,
 
                     record_type,
@@ -445,8 +499,23 @@ class AuditLogger:
                     settlement_payment_id,
                     settlement_api_status_code,
                     settlement_error,
-                    settlement_checked_at
+                    settlement_checked_at,
+
+                    invoice_id,
+                    company_name,
+                    due_date,
+                    days_overdue,
+                    payment_status,
+                    previous_reminders,
+                    promised_payment_date,
+                    paid_at,
+
+                    promise_id,
+                    promise_status,
+                    previous_missed_promises,
+                    contact_channel
                 )
+
                 VALUES (
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
@@ -458,7 +527,9 @@ class AuditLogger:
                     ?,
                     ?, ?,
                     ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?
                 )
                 """,
                 (
@@ -512,14 +583,28 @@ class AuditLogger:
                     settlement_api_status_code,
                     settlement_error,
                     settlement_checked_at,
+
+                    invoice_id,
+                    company_name,
+                    due_date,
+                    days_overdue,
+                    payment_status,
+                    previous_reminders,
+                    promised_payment_date,
+                    paid_at,
+
+                    promise_id,
+                    promise_status,
+                    previous_missed_promises,
+                    contact_channel,
                 ),
             )
 
             connection.commit()
 
-    # -----------------------------------------------------
-    # Convert row to dictionary
-    # -----------------------------------------------------
+    # =====================================================
+    # Convert Row To Dictionary
+    # =====================================================
 
     @staticmethod
     def _row_to_dict(
@@ -538,9 +623,9 @@ class AuditLogger:
             )
         )
 
-    # -----------------------------------------------------
-    # Get all logs
-    # -----------------------------------------------------
+    # =====================================================
+    # Get All Logs
+    # =====================================================
 
     def get_all_logs(self) -> list[dict]:
         """
@@ -552,53 +637,7 @@ class AuditLogger:
 
             cursor.execute(
                 """
-                SELECT
-                    id,
-                    timestamp,
-
-                    record_type,
-                    checkout_id,
-                    customer_id,
-                    currency,
-                    started_at,
-
-                    payment_id,
-                    customer_name,
-                    email,
-                    amount,
-
-                    failure_reason,
-                    payment_type,
-                    attempt_count,
-
-                    decision,
-                    decision_reason,
-
-                    action_taken,
-
-                    api_request,
-                    api_response,
-                    api_status_code,
-
-                    outcome,
-
-                    recovery_type,
-
-                    real_api_call,
-                    simulated,
-
-                    notes,
-
-                    payment_link_id,
-                    settlement_status,
-                    settlement_confirmed,
-                    settlement_amount,
-                    settlement_amount_paid,
-                    settlement_payment_id,
-                    settlement_api_status_code,
-                    settlement_error,
-                    settlement_checked_at
-
+                SELECT *
                 FROM audit_logs
                 ORDER BY id ASC
                 """
@@ -614,16 +653,16 @@ class AuditLogger:
                 for row in rows
             ]
 
-    # -----------------------------------------------------
-    # Get logs for payment IDs
-    # -----------------------------------------------------
+    # =====================================================
+    # Payment Logs
+    # =====================================================
 
     def get_logs_for_payment_ids(
         self,
         payment_ids: list[str],
     ) -> list[dict]:
         """
-        Return audit records for the supplied payment IDs.
+        Return audit records for supplied payment IDs.
         """
 
         if not payment_ids:
@@ -635,59 +674,11 @@ class AuditLogger:
         )
 
         query = f"""
-            SELECT
-                id,
-                timestamp,
-
-                record_type,
-                checkout_id,
-                customer_id,
-                currency,
-                started_at,
-
-                payment_id,
-                customer_name,
-                email,
-                amount,
-
-                failure_reason,
-                payment_type,
-                attempt_count,
-
-                decision,
-                decision_reason,
-
-                action_taken,
-
-                api_request,
-                api_response,
-                api_status_code,
-
-                outcome,
-
-                recovery_type,
-
-                real_api_call,
-                simulated,
-
-                notes,
-
-                payment_link_id,
-                settlement_status,
-                settlement_confirmed,
-                settlement_amount,
-                settlement_amount_paid,
-                settlement_payment_id,
-                settlement_api_status_code,
-                settlement_error,
-                settlement_checked_at
-
+            SELECT *
             FROM audit_logs
-
             WHERE payment_id IN (
                 {placeholders}
             )
-
             ORDER BY id ASC
         """
 
@@ -709,19 +700,13 @@ class AuditLogger:
                 for row in rows
             ]
 
-    # -----------------------------------------------------
-    # Get confirmed settlements
-    # -----------------------------------------------------
+    # =====================================================
+    # B2B Logs
+    # =====================================================
 
-    def get_confirmed_settlements(
-        self,
-    ) -> list[dict]:
+    def get_b2b_logs(self) -> list[dict]:
         """
-        Return audit records where Razorpay confirmed
-        an actual payment.
-
-        This provides a direct source for calculating
-        confirmed recovered revenue.
+        Return all B2B receivable audit records.
         """
 
         with self._connect() as connection:
@@ -729,57 +714,9 @@ class AuditLogger:
 
             cursor.execute(
                 """
-                SELECT
-                    id,
-                    timestamp,
-
-                    record_type,
-                    checkout_id,
-                    customer_id,
-                    currency,
-                    started_at,
-
-                    payment_id,
-                    customer_name,
-                    email,
-                    amount,
-
-                    failure_reason,
-                    payment_type,
-                    attempt_count,
-
-                    decision,
-                    decision_reason,
-
-                    action_taken,
-
-                    api_request,
-                    api_response,
-                    api_status_code,
-
-                    outcome,
-
-                    recovery_type,
-
-                    real_api_call,
-                    simulated,
-
-                    notes,
-
-                    payment_link_id,
-                    settlement_status,
-                    settlement_confirmed,
-                    settlement_amount,
-                    settlement_amount_paid,
-                    settlement_payment_id,
-                    settlement_api_status_code,
-                    settlement_error,
-                    settlement_checked_at
-
+                SELECT *
                 FROM audit_logs
-
-                WHERE settlement_confirmed = 1
-
+                WHERE record_type = 'b2b'
                 ORDER BY id ASC
                 """
             )
@@ -794,16 +731,151 @@ class AuditLogger:
                 for row in rows
             ]
 
-    # -----------------------------------------------------
-    # Confirmed recovered amount
-    # -----------------------------------------------------
+    # =====================================================
+    # B2B Outstanding Amount
+    # =====================================================
+
+    def get_b2b_outstanding_amount(
+        self,
+    ) -> float:
+        """
+        Return total B2B amount currently marked as
+        still outstanding in the current audit batch.
+        """
+
+        with self._connect() as connection:
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    COALESCE(
+                        SUM(amount),
+                        0
+                    )
+                FROM audit_logs
+                WHERE record_type = 'b2b'
+                AND outcome = 'still_outstanding'
+                """
+            )
+
+            result = cursor.fetchone()
+
+            return float(
+                result[0]
+            )
+
+    # =====================================================
+    # Promise-to-Pay Logs
+    # =====================================================
+
+    def get_promise_to_pay_logs(
+        self,
+    ) -> list[dict]:
+        """
+        Return all Promise-to-Pay audit records.
+        """
+
+        with self._connect() as connection:
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM audit_logs
+                WHERE record_type = 'promise_to_pay'
+                ORDER BY id ASC
+                """
+            )
+
+            rows = cursor.fetchall()
+
+            return [
+                self._row_to_dict(
+                    cursor,
+                    row,
+                )
+                for row in rows
+            ]
+
+    # =====================================================
+    # Promise-to-Pay Outstanding Amount
+    # =====================================================
+
+    def get_promise_to_pay_outstanding_amount(
+        self,
+    ) -> float:
+        """
+        Return total Promise-to-Pay amount currently
+        recorded as still outstanding.
+        """
+
+        with self._connect() as connection:
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    COALESCE(
+                        SUM(amount),
+                        0
+                    )
+                FROM audit_logs
+                WHERE record_type = 'promise_to_pay'
+                AND outcome = 'still_outstanding'
+                """
+            )
+
+            result = cursor.fetchone()
+
+            return float(
+                result[0]
+            )
+
+    # =====================================================
+    # Confirmed Settlements
+    # =====================================================
+
+    def get_confirmed_settlements(
+        self,
+    ) -> list[dict]:
+        """
+        Return audit records where Razorpay confirmed
+        an actual payment.
+        """
+
+        with self._connect() as connection:
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM audit_logs
+                WHERE settlement_confirmed = 1
+                ORDER BY id ASC
+                """
+            )
+
+            rows = cursor.fetchall()
+
+            return [
+                self._row_to_dict(
+                    cursor,
+                    row,
+                )
+                for row in rows
+            ]
+
+    # =====================================================
+    # Confirmed Recovered Amount
+    # =====================================================
 
     def get_confirmed_recovered_amount(
         self,
     ) -> float:
         """
-        Return total amount actually paid through confirmed
-        Payment Link settlements.
+        Return total amount actually paid through
+        confirmed Payment Link settlements.
         """
 
         with self._connect() as connection:
@@ -818,9 +890,7 @@ class AuditLogger:
                         ),
                         0
                     )
-
                 FROM audit_logs
-
                 WHERE settlement_confirmed = 1
                 """
             )
@@ -831,9 +901,9 @@ class AuditLogger:
                 result[0]
             )
 
-    # -----------------------------------------------------
-    # Count logs
-    # -----------------------------------------------------
+    # =====================================================
+    # Count Logs
+    # =====================================================
 
     def count_logs(self) -> int:
         """
@@ -858,6 +928,7 @@ class AuditLogger:
 
 
 if __name__ == "__main__":
+
     logger = AuditLogger()
 
     print("=" * 60)
@@ -872,6 +943,30 @@ if __name__ == "__main__":
     print(
         "Audit records:",
         logger.count_logs(),
+    )
+
+    print(
+        "B2B audit records:",
+        len(
+            logger.get_b2b_logs()
+        ),
+    )
+
+    print(
+        "B2B outstanding amount:",
+        f"₹{logger.get_b2b_outstanding_amount():.2f}",
+    )
+
+    print(
+        "Promise-to-Pay audit records:",
+        len(
+            logger.get_promise_to_pay_logs()
+        ),
+    )
+
+    print(
+        "Promise-to-Pay outstanding amount:",
+        f"₹{logger.get_promise_to_pay_outstanding_amount():.2f}",
     )
 
     print(

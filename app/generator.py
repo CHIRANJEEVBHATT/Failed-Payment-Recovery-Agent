@@ -1,7 +1,6 @@
 import csv
 import json
 import random
-import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,13 +11,17 @@ from app.config import (
     MIN_SYNTHETIC_RECORDS,
 )
 
-from app.models import CheckoutSession, FailedPayment
-from app.models import FailedPayment
+from app.models import (
+    B2BReceivable,
+    CheckoutSession,
+    FailedPayment,
+    PromiseToPay,
+)
 
 
-# ---------------------------------------------------------
-# Synthetic data options
-# ---------------------------------------------------------
+# =========================================================
+# Synthetic Payment Data
+# =========================================================
 
 CUSTOMER_NAMES = [
     "Aarav Sharma",
@@ -38,6 +41,7 @@ CUSTOMER_NAMES = [
     "Kavya Reddy",
 ]
 
+
 FAILURE_REASONS = [
     "insufficient_funds",
     "card_expired",
@@ -47,17 +51,75 @@ FAILURE_REASONS = [
     "mandate_failed",
 ]
 
+
 PAYMENT_TYPES = [
     "one-time",
     "subscription",
 ]
 
 
-# ---------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------
+# =========================================================
+# B2B Synthetic Data
+# =========================================================
 
-def generate_email(name: str, index: int) -> str:
+COMPANY_NAMES = [
+    "Acme Technologies",
+    "Nova Retail Pvt Ltd",
+    "Vertex Solutions",
+    "BluePeak Systems",
+    "Apex Enterprises",
+    "Orbit Digital",
+    "NextGen Logistics",
+    "CloudBridge India",
+    "Zenith Consulting",
+    "PrimeWorks Pvt Ltd",
+]
+
+
+B2B_AMOUNTS = [
+    15000.00,
+    25000.00,
+    40000.00,
+    50000.00,
+    75000.00,
+    100000.00,
+    125000.00,
+    150000.00,
+    200000.00,
+]
+
+
+# =========================================================
+# Promise-to-Pay Synthetic Data
+# =========================================================
+
+PTP_CONTACT_CHANNELS = [
+    "email",
+    "sms",
+    "whatsapp",
+]
+
+
+PTP_AMOUNTS = [
+    2500.00,
+    4999.00,
+    7500.00,
+    9999.00,
+    15000.00,
+    25000.00,
+    40000.00,
+    50000.00,
+]
+
+
+# =========================================================
+# Helper Functions
+# =========================================================
+
+def generate_email(
+    name: str,
+    index: int,
+) -> str:
     """
     Generate a fake email address.
     """
@@ -67,41 +129,32 @@ def generate_email(name: str, index: int) -> str:
         .replace(" ", ".")
     )
 
-    return f"{clean_name}{index}@example.com"
+    return (
+        f"{clean_name}"
+        f"{index}"
+        "@example.com"
+    )
 
 
-def generate_phone(index: int) -> str:
+def generate_phone(
+    index: int,
+) -> str:
     """
-    Generate a unique-looking fake phone number.
+    Generate a varied synthetic 10-digit phone number.
 
-    The previous implementation could generate values such
-    as 9999999999, which Razorpay Test Mode rejects because
-    repeated digits are not allowed.
-
-    We therefore use a deterministic 10-digit number with
-    varied digits.
+    The generated value avoids obvious repeated-digit
+    patterns that Razorpay TEST MODE may reject.
     """
 
-    # Generate a varied number from the record index.
-    #
-    # Example:
-    # index = 1 -> 9123456781
-    # index = 2 -> 9234567892
-    #
-    # The values contain varied digits and avoid obvious
-    # repeated-digit test numbers.
-
-    prefix = 9000000000 + (
-        (index * 73129) % 999999999
+    prefix = (
+        9000000000
+        + ((index * 73129) % 999999999)
     )
 
     phone = str(prefix)
 
-    # Make absolutely sure we have exactly 10 digits.
     phone = phone[-10:]
 
-    # If an unlikely repeated-digit number appears,
-    # generate a known varied fallback.
     if len(set(phone)) < 5:
         phone = (
             f"9{index % 10}"
@@ -139,30 +192,34 @@ def generate_amount() -> float:
     return random.choice(amounts)
 
 
-def generate_last_attempt_time(index: int) -> str:
+def generate_last_attempt_time(
+    index: int,
+) -> str:
     """
-    Generate a timestamp for the latest payment attempt.
-
-    Most records are older than 10 minutes.
+    Generate the timestamp of the latest payment attempt.
 
     Every tenth record is intentionally recent so the
-    decision engine can demonstrate the retry cooldown rule.
+    retry cooldown rule can be demonstrated.
     """
 
     now = datetime.now()
 
     if index % 10 == 0:
-        # Inside the 10-minute cooldown window.
-        minutes_ago = random.randint(1, 9)
+        minutes_ago = random.randint(
+            1,
+            9,
+        )
     else:
-        # Outside the cooldown window.
         minutes_ago = random.randint(
             11,
             24 * 60,
         )
 
     timestamp = (
-        now - timedelta(minutes=minutes_ago)
+        now
+        - timedelta(
+            minutes=minutes_ago,
+        )
     )
 
     return timestamp.isoformat(
@@ -176,22 +233,29 @@ def generate_attempt_count(
     """
     Generate an attempt count appropriate for the failure.
 
-    Some records intentionally reach 3 attempts so that
+    Some records intentionally reach three attempts so
     DO_NOT_RETRY can be demonstrated.
     """
 
     if failure_reason == "fraud_block":
-        return random.choice([1, 1, 2])
+        return random.choice(
+            [1, 1, 2]
+        )
 
     if failure_reason == "mandate_failed":
-        return random.choice([1, 1, 2])
+        return random.choice(
+            [1, 1, 2]
+        )
 
-    return random.randint(1, 3)
+    return random.randint(
+        1,
+        3,
+    )
 
 
-# ---------------------------------------------------------
-# Main generator
-# ---------------------------------------------------------
+# =========================================================
+# Failed Payment Generator
+# =========================================================
 
 def generate_failed_payments() -> list[FailedPayment]:
     """
@@ -218,23 +282,27 @@ def generate_failed_payments() -> list[FailedPayment]:
         )
 
         payment = FailedPayment(
-            payment_id=f"pay_test_{index:04d}",
+            payment_id=(
+                f"pay_test_{index:04d}"
+            ),
             customer_name=customer_name,
             email=generate_email(
                 customer_name,
                 index,
             ),
-            phone=generate_phone(index),
+            phone=generate_phone(
+                index,
+            ),
             amount=generate_amount(),
             failure_reason=failure_reason,
             attempt_count=generate_attempt_count(
-                failure_reason
+                failure_reason,
             ),
             payment_type=random.choice(
                 PAYMENT_TYPES
             ),
             last_attempt_at=generate_last_attempt_time(
-                index
+                index,
             ),
         )
 
@@ -243,9 +311,9 @@ def generate_failed_payments() -> list[FailedPayment]:
     return payments
 
 
-# ---------------------------------------------------------
-# JSON writer
-# ---------------------------------------------------------
+# =========================================================
+# JSON Writer
+# =========================================================
 
 def save_json(
     payments: list[FailedPayment],
@@ -254,7 +322,9 @@ def save_json(
     Save failed payments as JSON.
     """
 
-    output_directory = Path(DATA_DIR)
+    output_directory = Path(
+        DATA_DIR
+    )
 
     output_directory.mkdir(
         parents=True,
@@ -284,9 +354,9 @@ def save_json(
     return output_file
 
 
-# ---------------------------------------------------------
-# CSV writer
-# ---------------------------------------------------------
+# =========================================================
+# CSV Writer
+# =========================================================
 
 def save_csv(
     payments: list[FailedPayment],
@@ -295,7 +365,9 @@ def save_csv(
     Save failed payments as CSV.
     """
 
-    output_directory = Path(DATA_DIR)
+    output_directory = Path(
+        DATA_DIR
+    )
 
     output_directory.mkdir(
         parents=True,
@@ -324,7 +396,6 @@ def save_csv(
         newline="",
         encoding="utf-8",
     ) as file:
-
         writer = csv.DictWriter(
             file,
             fieldnames=fieldnames,
@@ -340,19 +411,27 @@ def save_csv(
     return output_file
 
 
-# ---------------------------------------------------------
-# Public generator function
-# ---------------------------------------------------------
+# =========================================================
+# Public Payment Generator
+# =========================================================
 
 def generate_and_save_data() -> list[FailedPayment]:
     """
-    Generate synthetic data and save both JSON and CSV.
+    Generate synthetic failed-payment data and save
+    both JSON and CSV.
     """
 
-    payments = generate_failed_payments()
+    payments = (
+        generate_failed_payments()
+    )
 
-    json_file = save_json(payments)
-    csv_file = save_csv(payments)
+    json_file = save_json(
+        payments
+    )
+
+    csv_file = save_csv(
+        payments
+    )
 
     print(
         f"Generated {len(payments)} "
@@ -369,37 +448,63 @@ def generate_and_save_data() -> list[FailedPayment]:
 
     return payments
 
+
+# =========================================================
+# Checkout Drop-off Generator
+# =========================================================
+
 def generate_checkout_dropoffs(
     count: int = 20,
 ) -> list[CheckoutSession]:
     """
     Generate synthetic checkout sessions.
 
-    Some sessions are completed and some are abandoned.
-    Abandoned sessions older than 30 minutes represent
-    potential revenue at risk.
+    Some sessions are completed while others remain
+    abandoned. Abandoned sessions older than 30 minutes
+    represent potential revenue at risk.
     """
 
     sessions = []
 
-    for index in range(1, count + 1):
-        checkout_id = f"checkout_test_{index:04d}"
-        customer_id = f"cust_{random.randint(1000, 9999)}"
+    for index in range(
+        1,
+        count + 1,
+    ):
+        checkout_id = (
+            f"checkout_test_{index:04d}"
+        )
+
+        customer_id = (
+            f"cust_{random.randint(1000, 9999)}"
+        )
 
         amount = generate_amount()
 
-        started_at = datetime.now() - timedelta(
-            minutes=random.randint(30, 1440)
+        started_at = (
+            datetime.now()
+            - timedelta(
+                minutes=random.randint(
+                    30,
+                    1440,
+                )
+            )
         )
 
-        # Roughly 65% completed, 35% abandoned.
-        completed = random.random() < 0.65
+        completed = (
+            random.random() < 0.65
+        )
 
         completed_at = None
 
         if completed:
-            completed_at = started_at + timedelta(
-                minutes=random.randint(1, 20)
+            completed_at = (
+                started_at
+                + timedelta(
+                    minutes=random.randint(
+                        1,
+                        20,
+                    )
+                )
             )
 
         sessions.append(
@@ -416,9 +521,256 @@ def generate_checkout_dropoffs(
 
     return sessions
 
-# ---------------------------------------------------------
-# Direct execution
-# ---------------------------------------------------------
+
+# =========================================================
+# B2B Receivables Generator
+# =========================================================
+
+def generate_b2b_receivables(
+    count: int = 20,
+) -> list[B2BReceivable]:
+    """
+    Generate synthetic B2B invoices.
+
+    The generated records deliberately cover:
+
+        1-7 days
+        8-15 days
+        16-30 days
+        31-60 days
+    """
+
+    receivables = []
+
+    overdue_ranges = [
+        (1, 7),
+        (8, 15),
+        (16, 30),
+        (31, 60),
+    ]
+
+    for index in range(
+        1,
+        count + 1,
+    ):
+        company_name = random.choice(
+            COMPANY_NAMES
+        )
+
+        customer_id = (
+            f"b2b_cust_"
+            f"{random.randint(1000, 9999)}"
+        )
+
+        amount = random.choice(
+            B2B_AMOUNTS
+        )
+
+        minimum_days, maximum_days = (
+            overdue_ranges[
+                (index - 1)
+                % len(overdue_ranges)
+            ]
+        )
+
+        days_overdue = random.randint(
+            minimum_days,
+            maximum_days,
+        )
+
+        due_date = (
+            datetime.now()
+            - timedelta(
+                days=days_overdue
+            )
+        )
+
+        previous_reminders = random.randint(
+            0,
+            3,
+        )
+
+        receivable = B2BReceivable(
+            invoice_id=(
+                f"inv_test_{index:04d}"
+            ),
+            company_name=company_name,
+            customer_id=customer_id,
+            amount=amount,
+            currency="INR",
+            due_date=due_date,
+            days_overdue=days_overdue,
+            payment_status="overdue",
+            previous_reminders=previous_reminders,
+        )
+
+        receivables.append(
+            receivable
+        )
+
+    return receivables
+
+
+# =========================================================
+# Promise-to-Pay Generator
+# =========================================================
+
+def generate_promise_to_pay(
+    count: int = 20,
+) -> list[PromiseToPay]:
+    """
+    Generate synthetic Promise-to-Pay records.
+
+    The generator intentionally cycles through every
+    decision tier:
+
+        0 -> already paid
+        future -> upcoming promise
+        today -> due today
+        1-3 days overdue
+        4-7 days overdue
+        >7 days overdue
+
+    A promise is never treated as recovered revenue.
+    """
+
+    promises = []
+
+    now = datetime.now()
+
+    for index in range(
+        1,
+        count + 1,
+    ):
+        customer_name = (
+            CUSTOMER_NAMES[
+                (index - 1)
+                % len(CUSTOMER_NAMES)
+            ]
+        )
+
+        customer_id = (
+            f"ptp_cust_{index:04d}"
+        )
+
+        amount = (
+            PTP_AMOUNTS[
+                (index - 1)
+                % len(PTP_AMOUNTS)
+            ]
+        )
+
+        created_at = (
+            now
+            - timedelta(
+                days=random.randint(
+                    1,
+                    14,
+                )
+            )
+        )
+
+        tier = (
+            (index - 1) % 6
+        )
+
+        status = "promised"
+
+        if tier == 0:
+            # Already paid promise.
+            promised_date = (
+                now
+                - timedelta(days=2)
+            )
+            status = "paid"
+
+        elif tier == 1:
+            # Promise is upcoming.
+            promised_date = (
+                now
+                + timedelta(
+                    days=random.randint(
+                        1,
+                        3,
+                    )
+                )
+            )
+
+        elif tier == 2:
+            # Due today.
+            promised_date = now
+
+        elif tier == 3:
+            # 1-3 days overdue.
+            promised_date = (
+                now
+                - timedelta(
+                    days=random.randint(
+                        1,
+                        3,
+                    )
+                )
+            )
+
+        elif tier == 4:
+            # 4-7 days overdue.
+            promised_date = (
+                now
+                - timedelta(
+                    days=random.randint(
+                        4,
+                        7,
+                    )
+                )
+            )
+
+        else:
+            # More than 7 days overdue.
+            promised_date = (
+                now
+                - timedelta(
+                    days=random.randint(
+                        8,
+                        14,
+                    )
+                )
+            )
+
+        if status == "paid":
+            previous_missed_promises = 0
+        else:
+            previous_missed_promises = random.randint(
+                0,
+                2,
+            )
+
+        promises.append(
+            PromiseToPay(
+                promise_id=(
+                    f"promise_test_{index:04d}"
+                ),
+                customer_id=customer_id,
+                customer_name=customer_name,
+                amount=amount,
+                currency="INR",
+                promised_date=promised_date,
+                created_at=created_at,
+                status=status,
+                previous_missed_promises=(
+                    previous_missed_promises
+                ),
+                contact_channel=random.choice(
+                    PTP_CONTACT_CHANNELS
+                ),
+            )
+        )
+
+    return promises
+
+
+# =========================================================
+# Direct Execution
+# =========================================================
 
 if __name__ == "__main__":
     generate_and_save_data()
